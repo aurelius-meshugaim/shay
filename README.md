@@ -36,3 +36,7 @@ python3 -m http.server 8000
 
 - Pipeline + gallery verified end-to-end on `input/sample-river.png` (2026-06-07).
 - Waiting on the real stone photos — drop them in `input/` and rerun the pipeline.
+
+## References
+
+- [KP Conrad Photography — Contact](https://kpconradphotography.com/contact/)
