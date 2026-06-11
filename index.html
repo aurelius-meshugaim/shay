@@ -263,6 +263,7 @@
       m.className='offer-msg';
       m.textContent='Thank you — your offer of '+usd+' for '+FLINT_NAME+' is in. We’ll be in touch at '+email+'.';
       document.getElementById('offerForm').querySelector('.offer-send').disabled=true;
+      setTimeout(resetOffer, 3000); // show thank-you inline, then return to the Offer button
       if(OFFER_TO){
         const sub=encodeURIComponent('Offer on '+FLINT_NAME+' — '+usd),
               body=encodeURIComponent('Stone: '+FLINT_NAME+'\nOffer: '+usd+' ('+price+' k$)\nFrom: '+email);
