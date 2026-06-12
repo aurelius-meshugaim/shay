@@ -203,11 +203,15 @@
     /* while building: the status words replace everything; the visitor's
        prompt sinks blurred into the background */
     .dream-slide.dreaming .dream-soon, .dream-slide.dreaming .dream-head,
-    .dream-slide.dreaming .dream-sub,  .dream-slide.dreaming .dream-go { display:none; }
+    .dream-slide.dreaming .dream-sub,  .dream-slide.dreaming .dream-go,
+    .dream-slide.dreaming textarea { display:none; }
     .dream-slide.dreaming .dream-panel { justify-content:center; min-height:60%; }
-    .dream-slide.dreaming textarea { position:absolute; inset:12% 6%; z-index:0;
-      filter:blur(7px); opacity:.28; pointer-events:none; border:0; background:transparent;
-      transform:scale(1.12); text-align:center; }
+    .dream-ghost { position:absolute; inset:8% 7%; z-index:0; display:none;
+      align-items:center; justify-content:center; text-align:center;
+      font-size:clamp(1.05rem,3vw,1.6rem); font-weight:500; font-style:italic;
+      line-height:1.7; color:rgba(255,255,255,.55); filter:blur(4px);
+      pointer-events:none; overflow:hidden; }
+    .dream-slide.dreaming .dream-ghost { display:flex; }
     .dream-slide.dreaming .dream-msg { position:relative; z-index:1;
       font-size:clamp(1.05rem,2.8vw,1.5rem); font-weight:650; font-style:normal;
       letter-spacing:.03em; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,.85);
@@ -284,6 +288,7 @@
     <div class="lb-stage" id="lbStage">
       <div class="dream-slide" id="dreamSlide">
         <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
+        <div class="dream-ghost" id="dreamGhost" aria-hidden="true"></div>
         <div class="dream-panel">
           <div class="dream-soon">coming soon</div>
           <div class="dream-head">This stone, in your home</div>
@@ -454,6 +459,7 @@
             msg=document.getElementById('dreamMsg'), go=document.getElementById('dreamGo');
       if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
       dreaming=true; go.disabled=true; msg.className='dream-msg';
+      document.getElementById('dreamGhost').textContent='“'+desc+'”';  // their words, blurred behind
       dreamSlide.classList.add('dreaming');
       nameEl.textContent=''; cap.textContent='';   // the creation wording replaces every other line
       let li=0; msg.textContent=DREAM_LINES[0];
