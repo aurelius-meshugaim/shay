@@ -59,17 +59,20 @@ async function gemini(key, parts, label) {
   }
 }
 
-async function roll50(buf) {
-  const img = sharp(buf);
-  const { width: w, height: h } = await img.metadata();
-  const half = Math.floor(w / 2);
-  const left = await sharp(buf).extract({ left: 0, top: 0, width: half, height: h }).toBuffer();
-  const right = await sharp(buf).extract({ left: half, top: 0, width: w - half, height: h }).toBuffer();
+// Horizontal wrap-roll by a fraction of the width (0.5 = 180°).
+async function roll(buf, frac = 0.5) {
+  frac = ((frac % 1) + 1) % 1;
+  const { width: w, height: h } = await sharp(buf).metadata();
+  const cut = Math.round(w * frac);
+  if (cut === 0 || cut === w) return buf;
+  const left = await sharp(buf).extract({ left: 0, top: 0, width: cut, height: h }).toBuffer();
+  const right = await sharp(buf).extract({ left: cut, top: 0, width: w - cut, height: h }).toBuffer();
   return sharp({ create: { width: w, height: h, channels: 3, background: "#000" } })
-    .composite([{ input: right, left: 0, top: 0 }, { input: left, left: w - half, top: 0 }])
+    .composite([{ input: right, left: 0, top: 0 }, { input: left, left: w - cut, top: 0 }])
     .jpeg({ quality: 92 })
     .toBuffer();
 }
+const roll50 = (buf) => roll(buf, 0.5);
 
 function dims(stoneMeta) {
   const d = stoneMeta?.dimensions;
@@ -92,8 +95,9 @@ Completely redesign the interior into the visitor's own home, as they describe i
 
 NON-NEGOTIABLE RULES, regardless of the description:
 1. The room is SPACIOUS — high ceilings, walls at a generous distance from the camera; the visitor stands in the middle of an open, airy space. If the description implies a small space, render its spirit in a generous version of it.
-2. The stone stands at the CENTER OF THE ROOM: ${placement}, one or two steps in front of the camera, at the horizontal center of the image. It is the focal point the whole room is arranged around.
-3. The stone's size is EXACTLY its real size — ${sizeText}, ${scaleWord}, NOT larger and NOT smaller. A stone rendered at a different size than ${sizeText} is wrong.
+2. The room is RICH and lived-in: layered textiles, artwork on the walls, plants, books, lamps, warm material detail — a loved, fully furnished home in the spirit of the description, never an empty showroom.
+3. The stone stands at the CENTER OF THE ROOM: ${placement}, about three to four meters in front of the camera, at the horizontal center of the image. It is the focal point the whole room is arranged around — visible, but with breathing room around it.
+4. The stone's size is EXACTLY its real size — ${sizeText}, ${scaleWord}, NOT larger and NOT smaller. A stone rendered at a different size than ${sizeText} is wrong.
 
 Use the exact stone from the second photograph: preserve its true colors, banding, texture and silhouette, and light it consistently with the room.
 
@@ -116,7 +120,34 @@ Repair ONLY that vertical seam zone: blend the architecture and surfaces across 
     { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
   ], "seam-repair");
 
-  const back = await roll50(repaired); // roll back → stone faces initial view
+  return finish(repaired);
+}
+
+// Street-View-style step: re-render the SAME room from a moved camera, then
+// run the same seam-repair pass (camera moves are heavy re-synthesis).
+async function walkStep({ key, pano, direction }) {
+  const movePrompt = `This is a 360-degree equirectangular panorama of a room, captured from its center at eye level.
+
+Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves. Keep the displayed stone exactly as it is, at its same physical size and place in the room.
+
+CRITICAL: output a full 360x180 equirectangular panorama — floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text.`;
+
+  const moved = await gemini(key, [
+    { text: movePrompt },
+    { inlineData: { mimeType: "image/jpeg", data: pano.toString("base64") } },
+  ], "walk");
+
+  const rolled = await roll50(moved);
+  const repairPrompt = `This is a 360-degree equirectangular panorama of a room. There may be a visible vertical seam artifact running down the middle where two parts of the room meet with a hard discontinuity. Repair ONLY that seam zone: blend the architecture and surfaces across it so the room reads continuous. Keep everything else pixel-faithful, same equirectangular projection, left and right edges exactly continuous.`;
+  const repaired = await gemini(key, [
+    { text: repairPrompt },
+    { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
+  ], "walk-seam-repair");
+  return finish(repaired);
+}
+
+async function finish(repaired) {
+  const back = await roll50(repaired); // roll back → original facing restored
   // models drift on aspect; normalize to exact 2:1 so the viewer maps a full sphere
   const { width: w, height: h } = await sharp(back).metadata();
   if (w !== 2 * h) return sharp(back).resize(2 * h, h, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
@@ -160,6 +191,34 @@ module.exports = async (req, res) => {
     return res.json({ error: "The dream engine needs a breather — try again in a little while." });
   }
 
+  // Street-View walk: client sends the current pano back + the yaw it faces.
+  // We roll the pano so that facing sits at the image center, ask the model to
+  // walk "toward the center", and the client re-opens facing the walk target.
+  if (req.body && req.body.walk) {
+    const { pano = "", yawDeg = 180 } = req.body;
+    if (typeof pano !== "string" || pano.length < 1000 || pano.length > 4_000_000) {
+      res.statusCode = 400;
+      return res.json({ error: "Bad panorama payload." });
+    }
+    try {
+      const facingFrac = (Number(yawDeg) || 180) / 360 - 0.5; // u of facing − center
+      const oriented = await roll(Buffer.from(pano, "base64"), facingFrac);
+      const jpeg = await walkStep({
+        key: KEY,
+        pano: oriented,
+        direction: "straight ahead — toward whatever stands at the horizontal center of this image",
+      });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Cache-Control", "no-store");
+      return res.end(jpeg);
+    } catch (e) {
+      console.error("walk failed:", e.message);
+      res.statusCode = 502;
+      return res.json({ error: "Couldn't take that step — try again." });
+    }
+  }
+
   const { stone = "flint", description = "", email = "" } = req.body || {};
   const desc = String(description).trim();
   if (desc.length < 3 || desc.length > 600) {
@@ -196,7 +255,14 @@ module.exports = async (req, res) => {
     template: Buffer.from(await tplRes.arrayBuffer()),
   };
   const manifest = manifestRes.ok ? await manifestRes.json() : [];
-  const meta = manifest.find((s) => s.id === stone);
+  let meta = manifest.find((s) => s.id === stone);
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    // DB is the source of truth for identity + dimensions; manifest is fallback
+    const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
+    const row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/stones?id=eq.${stone}&select=name,width_cm,height_cm,depth_cm`, { headers: h })
+      .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+    if (row) meta = { name: row.name, dimensions: { width_cm: Number(row.width_cm), height_cm: Number(row.height_cm), depth_cm: Number(row.depth_cm) } };
+  }
   const args = { base, key: KEY, name: meta?.name || stone, ...dims(meta), desc };
 
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {

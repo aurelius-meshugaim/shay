@@ -199,6 +199,21 @@
     .dream-msg { min-height:1.3em; font-size:.78rem; font-weight:300; font-style:italic;
       color:var(--c2); }
     .dream-msg.err { color:#ff9d9d; font-style:normal; }
+
+    /* while building: the status words replace everything; the visitor's
+       prompt sinks blurred into the background */
+    .dream-slide.dreaming .dream-soon, .dream-slide.dreaming .dream-head,
+    .dream-slide.dreaming .dream-sub,  .dream-slide.dreaming .dream-go { display:none; }
+    .dream-slide.dreaming .dream-panel { justify-content:center; min-height:60%; }
+    .dream-slide.dreaming textarea { position:absolute; inset:12% 6%; z-index:0;
+      filter:blur(7px); opacity:.28; pointer-events:none; border:0; background:transparent;
+      transform:scale(1.12); text-align:center; }
+    .dream-slide.dreaming .dream-msg { position:relative; z-index:1;
+      font-size:clamp(1.05rem,2.8vw,1.5rem); font-weight:650; font-style:normal;
+      letter-spacing:.03em; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,.85);
+      animation:buildPulse 2.4s ease-in-out infinite; }
+    @keyframes buildPulse { 0%,100%{opacity:1;} 50%{opacity:.55;} }
+    .dream-slide.dreaming .dream-email { position:relative; z-index:1; }
     .dream-email { display:flex; flex-direction:column; gap:.5rem;
       animation:offerIn .35s cubic-bezier(0.16,1,0.3,1); }
     .dream-email[hidden] { display:none; }
@@ -231,6 +246,20 @@
       border-radius:50%; background:rgba(0,0,0,.45); color:#fff; font-size:1.5rem; cursor:pointer;
       display:flex; align-items:center; justify-content:center; z-index:2; }
     .pano-close:hover { background:rgba(0,0,0,.75); }
+    .pano-walk { position:absolute; bottom:56px; left:50%; transform:translateX(-50%);
+      z-index:2; border:0; cursor:pointer; padding:.65rem 1.6rem; border-radius:999px;
+      font-family:inherit; font-size:.74rem; font-weight:600; letter-spacing:.26em;
+      text-indent:.26em; text-transform:uppercase; color:#fff;
+      background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
+      border:1px solid rgba(255,255,255,.25); transition:all .2s; }
+    .pano-walk:hover { background:rgba(0,0,0,.75); border-color:rgba(255,255,255,.5); }
+    .pano-walk:disabled { opacity:.4; cursor:default; }
+    .pano-building { position:absolute; inset:0; z-index:3; display:flex;
+      align-items:center; justify-content:center; background:rgba(4,6,9,.55);
+      backdrop-filter:blur(3px); font-size:clamp(1.05rem,2.8vw,1.5rem); font-weight:650;
+      letter-spacing:.03em; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,.85);
+      animation:buildPulse 2.4s ease-in-out infinite; }
+    .pano-building[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -298,7 +327,9 @@
   <div class="pano" id="pano" aria-modal="true" role="dialog" aria-label="360 view of the stone in your home">
     <div class="pano-title">your home &mdash; 360&deg;</div>
     <button class="pano-close" aria-label="Close 360 view" onclick="closePano()">&times;</button>
-    <div class="pano-hint">drag to look around</div>
+    <button class="pano-walk" id="panoWalk" onclick="walkForward(event)" title="Walk three steps in the direction you're facing">&#8679;&nbsp;walk</button>
+    <div class="pano-building" id="panoBuilding" hidden></div>
+    <div class="pano-hint">drag to look around &middot; walk to move</div>
   </div>
 
   <script>
@@ -363,7 +394,11 @@
       document.addEventListener('keydown',lbKey); }
     function closeLB(e){ if(e) e.stopPropagation(); lb.classList.remove('open'); document.removeEventListener('keydown',lbKey); }
 
-    fetch('stones/manifest.json').then(r=>r.ok?r.json():[]).catch(()=>[]).then(d=>{ STONES=d; renderCards(); });
+    // DB-backed source of truth (auction state included); manifest is the fallback
+    fetch('/api/stones').then(r=>r.ok?r.json():Promise.reject())
+      .then(d=>{ STONES=d.stones||[]; renderCards(); })
+      .catch(()=>fetch('stones/manifest.json').then(r=>r.ok?r.json():[]).catch(()=>[])
+        .then(d=>{ STONES=d; renderCards(); }));
 
     // ---- offer ----
     function toggleOffer(e){ if(e) e.stopPropagation();
@@ -402,8 +437,8 @@
     lb.addEventListener('click', e=>{ if(e.target===lb) closeLB(); });   // click backdrop to close
 
     // ---- dream: describe your home → Gemini 360 panorama ----
-    const DREAM_LINES = ["Reading your words…","Raising the walls…","Opening up the space…",
-                         "Pouring the light…","Placing the stone at the center…",
+    const DREAM_LINES = ["Reading your words…","Building your room…","Raising the walls…",
+                         "Opening up the space…","Pouring the light…","Placing the stone at the center…",
                          "Stitching the horizon…","Smoothing the seams…","Almost there…"];
     let dreaming=false, emailCapable=null, emailTimer=null;
     fetch('/api/dream').then(r=>r.json()).then(c=>{ emailCapable=!!c.emailDelivery; }).catch(()=>{ emailCapable=false; });
@@ -414,6 +449,7 @@
             msg=document.getElementById('dreamMsg'), go=document.getElementById('dreamGo');
       if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
       dreaming=true; go.disabled=true; msg.className='dream-msg';
+      dreamSlide.classList.add('dreaming');
       let li=0; msg.textContent=DREAM_LINES[0];
       const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 5000);
       // after 5s of dreaming, offer email delivery (if the backend can send)
@@ -430,12 +466,12 @@
         const blob=await r.blob();
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
-        await openPano(URL.createObjectURL(blob));
+        await openPano(blob);
       }catch(err){
         clearInterval(ticker); clearTimeout(emailTimer);
         msg.textContent=err.message||'Something went wrong — try again.';
         msg.className='dream-msg err';
-      }finally{ dreaming=false; go.disabled=false; }
+      }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); }
     }
     async function emailDream(e){
       if(e) e.stopPropagation();
@@ -471,12 +507,16 @@
       });
       return three;
     }
-    async function openPano(url){
-      await loadThree();
-      const tex=await new Promise((ok,fail)=>{
-        new THREE.TextureLoader().load(url, ok, undefined, ()=>fail(new Error('Could not read the panorama.')));
+    function loadTex(url){
+      return new Promise((ok,fail)=>{
+        new THREE.TextureLoader().load(url, t=>{ t.colorSpace=THREE.SRGBColorSpace; ok(t); },
+          undefined, ()=>fail(new Error('Could not read the panorama.')));
       });
-      tex.colorSpace=THREE.SRGBColorSpace;
+    }
+    async function openPano(blob){
+      await loadThree();
+      const url=URL.createObjectURL(blob);
+      const tex=await loadTex(url);
       const img=tex.image, coverage=Math.min(1, (2*img.height)/img.width); // 2:1 = full sphere
       const renderer=new THREE.WebGLRenderer({antialias:true});
       renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -487,7 +527,8 @@
       const geo=new THREE.SphereGeometry(50, 64, 48,
         0, Math.PI*2, Math.PI*(1-coverage)/2, Math.PI*coverage);
       geo.scale(-1,1,1); // view from inside
-      scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:tex})));
+      const mat=new THREE.MeshBasicMaterial({map:tex});
+      scene.add(new THREE.Mesh(geo, mat));
       const maxLat=Math.max(15, coverage*85);
       let lon=PANO_INIT_LON, lat=0, vlon=0, vlat=0, drag=null, raf=0;
       window.panoYaw=(l,t)=>{ lon=l; if(t!==undefined) lat=t; }; // test/calibration hook
@@ -512,13 +553,48 @@
       const onResize=()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
         renderer.setSize(innerWidth,innerHeight); };
       addEventListener('resize',onResize);
-      panoState={ destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
-        renderer.dispose(); tex.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
+      panoState={
+        blob,
+        getYaw:()=>((lon%360)+360)%360,
+        async swap(newBlob){
+          const u=URL.createObjectURL(newBlob), t=await loadTex(u);
+          const old=mat.map; mat.map=t; mat.needsUpdate=true; old.dispose(); URL.revokeObjectURL(u);
+          panoState.blob=newBlob; lon=180; lat=0; vlon=vlat=0;
+        },
+        destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
+          renderer.dispose(); mat.map.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
       pano.classList.add('open'); frame();
     }
     function closePano(){
       pano.classList.remove('open');
+      document.getElementById('panoBuilding').hidden=true;
       if(panoState){ panoState.destroy(); panoState=null; }
+      walking=false;
+    }
+
+    // ---- street-view walking ----
+    const WALK_LINES=["Taking three steps&hellip;","Keeping every detail in place&hellip;","Looking around&hellip;"];
+    let walking=false;
+    async function walkForward(e){
+      if(e) e.stopPropagation();
+      if(walking||!panoState) return;
+      walking=true;
+      const btn=document.getElementById('panoWalk'), ov=document.getElementById('panoBuilding');
+      btn.disabled=true; ov.hidden=false;
+      let wi=0; ov.innerHTML=WALK_LINES[0];
+      const tick=setInterval(()=>{ ov.innerHTML=WALK_LINES[++wi%WALK_LINES.length]; }, 6000);
+      try{
+        const b64=await new Promise((ok,fail)=>{ const fr=new FileReader();
+          fr.onload=()=>ok(fr.result.split(',')[1]); fr.onerror=fail; fr.readAsDataURL(panoState.blob); });
+        const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ walk:true, pano:b64, yawDeg:panoState.getYaw() }) });
+        if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||"Couldn't take that step."); }
+        await panoState.swap(await r.blob());
+      }catch(err){
+        ov.innerHTML=err.message; await new Promise(ok=>setTimeout(ok,2200));
+      }finally{
+        clearInterval(tick); ov.hidden=true; btn.disabled=false; walking=false;
+      }
     }
     // capture phase + stopPropagation so one Escape closes only the pano,
     // not the lightbox underneath it

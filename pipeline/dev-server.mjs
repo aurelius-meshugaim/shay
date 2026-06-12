@@ -22,7 +22,9 @@ const PORT = Number(process.env.PORT || 8090);
 const MOCK = !!process.env.MOCK;
 const requireCjs = createRequire(import.meta.url);
 const handler = requireCjs(path.join(ROOT, "api/dream.js"));
-const offerHandler = requireCjs(path.join(ROOT, "api/offer.js"));
+const API_ROUTES = {}; // /api/<name> → api/<name>.js, Vercel-style
+for (const f of (await import("node:fs")).readdirSync(path.join(ROOT, "api")))
+  if (f.endsWith(".js")) API_ROUTES["/api/" + f.slice(0, -3)] = requireCjs(path.join(ROOT, "api", f));
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
   ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -30,12 +32,14 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 
 createServer(async (req, res) => {
   try {
-    if (req.url === "/api/offer") {
+    const route = API_ROUTES[req.url.split("?")[0]];
+    if (route && req.url !== "/api/dream") {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       try { req.body = JSON.parse(Buffer.concat(chunks).toString() || "{}"); } catch { req.body = {}; }
+      req.headers["x-forwarded-proto"] = "http";
       res.json = (obj) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
-      return offerHandler(req, res);
+      return route(req, res);
     }
     if (req.url === "/api/dream") {
       const chunks = [];
