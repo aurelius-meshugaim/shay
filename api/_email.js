@@ -17,14 +17,12 @@ function stoneEmail({ preheader = "", heading, intro = "", rows = [], image = nu
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#06080b;">
 <span style="display:none;max-height:0;overflow:hidden;">${esc(preheader)}</span>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#06080b;">
-<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#06080b"
+  background="https://shaym.beauty/bg.webp"
+  style="background:#06080b url('https://shaym.beauty/bg.webp') center top / cover no-repeat;">
+<tr><td align="center" style="padding:56px 16px 64px;">
   <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
-    <tr><td style="border-radius:18px 18px 0 0;overflow:hidden;">
-      <img src="https://shaym.beauty/bg.webp" width="560" alt=""
-        style="display:block;width:100%;height:140px;object-fit:cover;border-radius:18px 18px 0 0;filter:brightness(.7);" />
-    </td></tr>
-    <tr><td style="background:#0b0f15;border:1px solid #1d2733;border-top:0;border-radius:0 0 18px 18px;padding:32px 36px;">
+    <tr><td bgcolor="#0b0f15" style="background-color:rgba(8,11,15,.88);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:36px;">
       <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:6px;text-transform:uppercase;color:#9fb4c8;padding-bottom:10px;">stones</div>
       <div style="font-family:Helvetica,Arial,sans-serif;font-size:24px;font-weight:700;color:#ffffff;line-height:1.3;padding-bottom:8px;">${heading}</div>
       ${intro ? `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:300;color:#b9c6d2;line-height:1.6;padding-bottom:18px;">${intro}</div>` : ""}
