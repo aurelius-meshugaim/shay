@@ -3,11 +3,12 @@
     "api/dream.js": { "maxDuration": 60 },
     "api/admin.js": { "maxDuration": 60 }
   },
-  "rewrites": [
+  "routes": [
     {
-      "source": "/",
+      "src": "/",
       "has": [{ "type": "host", "value": "admin.shaym.beauty" }],
-      "destination": "/admin.html"
-    }
+      "dest": "/admin.html"
+    },
+    { "handle": "filesystem" }
   ]
 }
