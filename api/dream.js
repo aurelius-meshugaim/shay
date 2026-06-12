@@ -289,16 +289,46 @@ module.exports = async (req, res) => {
   const plan = placement(meta);
   const args = { base, key: KEY, stage: plan.stage, desc };
 
+  // dream log — returns the row id so the finished panorama can be attached
+  let dreamId = null;
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
-    // fire-and-forget dream log
-    fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams`, {
+    dreamId = await fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams`, {
       method: "POST",
       headers: {
         apikey: process.env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
         "Content-Type": "application/json",
+        Prefer: "return=representation",
       },
       body: JSON.stringify({ stone_id: stone, description: desc, email: to || null, ip }),
+    }).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]?.id || null).catch(() => null);
+  }
+
+  // archive copies carry the stone baked in (the live viewer overlays it in 3D)
+  async function withStone(jpeg) {
+    const cutoutUrl = row?.images?.cutout;
+    if (!cutoutUrl) return jpeg;
+    try {
+      const c = await fetch(cutoutUrl);
+      if (!c.ok) return jpeg;
+      return await compositeStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big);
+    } catch { return jpeg; }
+  }
+
+  // permanence: store the finished illustration and link it to the log row
+  async function saveDream(jpeg) {
+    if (!dreamId || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return;
+    const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
+    const up = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/stones/dreams/${dreamId}.jpg`, {
+      method: "POST",
+      headers: { ...h, "Content-Type": "image/jpeg", "x-upsert": "true" },
+      body: jpeg,
+    }).catch(() => null);
+    if (!up || !up.ok) return;
+    await fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams?id=eq.${dreamId}`, {
+      method: "PATCH",
+      headers: { ...h, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ image: `${process.env.SUPABASE_URL}/storage/v1/object/public/stones/dreams/${dreamId}.jpg` }),
     }).catch(() => {});
   }
 
@@ -309,12 +339,9 @@ module.exports = async (req, res) => {
     res.json({ queued: true });
     waitUntil(
       generate(args)
+        .then(withStone)
         .then(async (jpeg) => {
-          const cutoutUrl = row?.images?.cutout;
-          if (cutoutUrl) {
-            const c = await fetch(cutoutUrl);
-            if (c.ok) jpeg = await compositeStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big);
-          }
+          await saveDream(jpeg);
           return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, jpeg });
         })
         .catch((e) => console.error("dream-email failed:", e.message)),
@@ -327,7 +354,9 @@ module.exports = async (req, res) => {
     res.statusCode = 200;
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
-    return res.end(jpeg);
+    res.end(jpeg);
+    waitUntil(withStone(jpeg).then(saveDream).catch(() => {})); // archive off the hot path
+    return;
   } catch (e) {
     console.error("dream failed:", e.message);
     res.statusCode = 502;
