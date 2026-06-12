@@ -216,6 +216,29 @@
       animation:buildPulse 2.8s ease-in-out infinite; }
     @keyframes buildPulse { 0%,100%{opacity:.85;} 50%{opacity:.45;} }
     .dream-slide.dreaming .dream-email { position:relative; z-index:1; }
+
+    /* after a dream: the slide becomes the room's photo — click to re-enter */
+    .lb-stage img.dream-result { position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; opacity:1; }
+    .dream-result[hidden], .dream-enter[hidden], .dream-again[hidden] { display:none; }
+    .dream-slide.has-result { cursor:pointer; }
+    .dream-slide.has-result .dream-panel { display:none; }
+    .dream-slide.has-result.dreaming .dream-panel { display:flex; position:relative; z-index:2;
+      background:rgba(4,6,9,.55); border-radius:14px; backdrop-filter:blur(4px); }
+    .dream-slide.has-result.dreaming .dream-enter,
+    .dream-slide.has-result.dreaming .dream-again { display:none; }
+    .dream-enter { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;
+      padding:.6rem 1.5rem; border-radius:999px; pointer-events:none;
+      font-size:.7rem; font-weight:600; letter-spacing:.3em; text-indent:.3em; text-transform:uppercase;
+      color:#fff; background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
+      border:1px solid rgba(255,255,255,.3); transition:opacity .3s; }
+    .dream-slide.has-result:hover .dream-enter { background:rgba(0,0,0,.7); }
+    .dream-again { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:1;
+      border:0; cursor:pointer; padding:.55rem 1.3rem; border-radius:999px; font-family:inherit;
+      font-size:.66rem; font-weight:600; letter-spacing:.22em; text-indent:.22em; text-transform:uppercase;
+      color:#06080b; background:linear-gradient(120deg,#fff,var(--c2) 70%,var(--c1));
+      box-shadow:0 6px 22px -6px rgba(0,0,0,.7); transition:transform .2s; }
+    .dream-again:hover { transform:translateX(-50%) translateY(-2px); }
     .dream-email { display:flex; flex-direction:column; gap:.5rem;
       animation:offerIn .35s cubic-bezier(0.16,1,0.3,1); }
     .dream-email[hidden] { display:none; }
@@ -286,6 +309,9 @@
     <div class="lb-stage" id="lbStage">
       <div class="dream-slide" id="dreamSlide">
         <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
+        <img class="dream-result" id="dreamResult" alt="Your room" hidden />
+        <div class="dream-enter" id="dreamEnter" hidden>step inside &mdash; 360&deg;</div>
+        <button class="dream-again" id="dreamAgain" hidden onclick="regenDream(event)">&#8635;&nbsp;dream it again</button>
         <div class="dream-panel">
           <div class="dream-soon">coming soon</div>
           <div class="dream-head">This stone, in your home</div>
@@ -381,6 +407,7 @@
       els=[]; thumbs.innerHTML='';
       document.getElementById('lbTitle').textContent=s.name;
       dreamSlide.querySelector('.dream-bg').src=s.variants?.indoor?.src||s.original;
+      renderDreamResult();
       slides.forEach((v,i)=>{
         if(v.dream){ els.push(dreamSlide); }
         else {
@@ -474,6 +501,9 @@
         const blob=await r.blob();
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
+        const old=dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
+        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob) };
+        renderDreamResult();
         await openPano(blob);
       }catch(err){
         clearInterval(ticker); clearTimeout(emailTimer);
@@ -481,6 +511,35 @@
         msg.className='dream-msg err';
       }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); show(idx); }
     }
+    // ---- dream result memory: the slide becomes the room photo (re-enter + regenerate)
+    const dreamResults={}; // stoneId → {blob, desc, url}
+    function renderDreamResult(){
+      const r=activeStone&&dreamResults[activeStone.id];
+      dreamSlide.classList.toggle('has-result',!!r);
+      document.getElementById('dreamResult').hidden=!r;
+      document.getElementById('dreamEnter').hidden=!r;
+      document.getElementById('dreamAgain').hidden=!r;
+      if(r){
+        document.getElementById('dreamResult').src=r.url;
+        document.getElementById('dreamDesc').value=r.desc;
+        const tb=thumbs.querySelector('.dream-thumb img'); if(tb) tb.src=r.url;
+      }
+    }
+    dreamSlide.addEventListener('click',(e)=>{
+      if(!dreamSlide.classList.contains('has-result')||dreaming) return;
+      if(e.target.closest('.dream-again')||e.target.closest('.dream-email')) return;
+      e.stopPropagation();
+      const r=dreamResults[activeStone.id];
+      if(r) openPano(r.blob);
+    });
+    function regenDream(e){
+      if(e) e.stopPropagation();
+      if(dreaming) return;
+      const r=dreamResults[activeStone.id];
+      if(r) document.getElementById('dreamDesc').value=r.desc;
+      startDream();
+    }
+
     async function emailDream(e){
       if(e) e.stopPropagation();
       const addr=document.getElementById('dreamEmailAddr').value.trim(),
