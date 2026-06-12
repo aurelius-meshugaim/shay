@@ -176,21 +176,23 @@ async function compositeStone(jpeg, cutout, dimensions, big) {
     .toBuffer();
 }
 
-async function sendEmail({ resendKey, to, name, jpeg }) {
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: "Stones <stones@shaym.beauty>",
-      to: [to],
-      subject: `${name} — in your home, in 360°`,
-      html: `<p>Your dream is ready: <strong>${name}</strong>, at home with you.</p>
-<p>The attached image is a full 360° panorama — open it at
-<a href="https://shaym.beauty">shaym.beauty</a> or in any 360 viewer.</p>`,
-      attachments: [{ filename: "your-home-360.jpg", content: jpeg.toString("base64") }],
+const { stoneEmail, send: sendMail } = require("./_email.js");
+
+async function sendEmail({ resendKey, to, name, desc, jpeg }) {
+  return sendMail({
+    resendKey,
+    to,
+    subject: `${name} — in your home, in 360°`,
+    html: stoneEmail({
+      preheader: `Your dream is ready — ${name}, at home with you.`,
+      heading: "Your dream is ready",
+      intro: `<em>“${desc.replace(/&/g, "&amp;").replace(/</g, "&lt;")}”</em><br/><br/>` +
+        `The attached image is a full 360° panorama of your home with <strong style="color:#fff">${name}</strong> in it — open it in any 360 viewer, or come back and dream another room.`,
+      rows: [{ label: "Stone", value: name }],
+      cta: { label: "Dream another room", url: "https://shaym.beauty" },
     }),
+    attachments: [{ filename: "your-home-360.jpg", content: jpeg.toString("base64") }],
   });
-  if (!r.ok) throw new Error(`resend: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
 }
 
 module.exports = async (req, res) => {
@@ -313,7 +315,7 @@ module.exports = async (req, res) => {
             const c = await fetch(cutoutUrl);
             if (c.ok) jpeg = await compositeStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big);
           }
-          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, jpeg });
+          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, jpeg });
         })
         .catch((e) => console.error("dream-email failed:", e.message)),
     );

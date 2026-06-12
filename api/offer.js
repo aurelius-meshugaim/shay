@@ -1,6 +1,9 @@
 // POST /api/offer  { stone, amount_usd, email }
-// Persists an auction offer per stone into Supabase (offers table) and,
-// when Resend is configured, notifies the gallery inbox.
+// Persists an auction offer per stone into Supabase (offers table) and, when
+// Resend is configured, sends two designed emails: a notification to the
+// gallery (OFFER_NOTIFY) and a confirmation to the bidder.
+
+const { stoneEmail, send } = require("./_email.js");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -36,17 +39,54 @@ module.exports = async (req, res) => {
     return res.json({ error: "Could not record the offer — try again." });
   }
 
-  if (process.env.RESEND_API_KEY && process.env.OFFER_NOTIFY) {
-    fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: "Stones <stones@shaym.beauty>",
-        to: [process.env.OFFER_NOTIFY],
-        subject: `New offer: $${amount.toLocaleString("en-US")} on ${stone}`,
-        html: `<p>Stone: <strong>${stone}</strong></p><p>Offer: <strong>$${amount.toLocaleString("en-US")}</strong></p><p>From: ${to}</p>`,
+  if (process.env.RESEND_API_KEY) {
+    // shared designed template for both directions; failures never block the offer
+    const proto = req.headers["x-forwarded-proto"] || "https";
+    const info = await fetch(`${proto}://${req.headers.host}/api/stones`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.stones?.find((s) => s.id === stone))
+      .catch(() => null);
+    const name = info?.name || stone;
+    const img = info?.variants?.blur?.src
+      ? (info.variants.blur.src.startsWith("http") ? info.variants.blur.src : `https://shaym.beauty/${info.variants.blur.src}`)
+      : null;
+    const usd = "$" + amount.toLocaleString("en-US", { maximumFractionDigits: 0 });
+    const sizeRow = info?.dimensions
+      ? [{ label: "Size", value: [["width_cm", "wide"], ["height_cm", "tall"], ["depth_cm", "deep"]]
+          .filter(([k]) => info.dimensions[k] > 0).map(([k, w]) => `${info.dimensions[k]} cm ${w}`).join(" · ") }]
+      : [];
+    const jobs = [];
+    if (process.env.OFFER_NOTIFY) {
+      jobs.push(send({
+        resendKey: process.env.RESEND_API_KEY,
+        to: process.env.OFFER_NOTIFY,
+        subject: `New offer: ${usd} on ${name}`,
+        html: stoneEmail({
+          preheader: `${usd} on ${name} from ${to}`,
+          heading: "A new offer just landed",
+          big: usd,
+          image: img,
+          rows: [{ label: "Stone", value: name }, ...sizeRow, { label: "From", value: to }],
+          cta: { label: "Open the gallery", url: "https://shaym.beauty" },
+        }),
+      }));
+    }
+    jobs.push(send({
+      resendKey: process.env.RESEND_API_KEY,
+      to,
+      subject: `Your offer on ${name} is in`,
+      html: stoneEmail({
+        preheader: `We received your offer of ${usd} for ${name}.`,
+        heading: `Your offer on ${name} is in`,
+        intro: "Thank you — we received it, and we'll be in touch at this address.",
+        big: usd,
+        image: img,
+        rows: [{ label: "Stone", value: name }, ...sizeRow],
+        cta: { label: "Back to the stones", url: "https://shaym.beauty" },
       }),
-    }).catch(() => {});
+    }));
+    await Promise.allSettled(jobs).then((rs) =>
+      rs.forEach((x) => x.status === "rejected" && console.error("offer email:", x.reason?.message)));
   }
 
   return res.json({ ok: true });
