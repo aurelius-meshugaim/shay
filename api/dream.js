@@ -74,44 +74,38 @@ async function roll(buf, frac = 0.5) {
 }
 const roll50 = (buf) => roll(buf, 0.5);
 
-function dims(stoneMeta) {
-  const d = stoneMeta?.dimensions;
-  if (!d) return { sizeText: "about 14 cm wide (hand-sized)", scaleWord: "a hand-sized collectible mineral", placement: "on an elegant display pedestal or small table" };
-  // any subset of the three measurements may be present
-  const parts = [];
-  if (d.width_cm > 0) parts.push(`${d.width_cm} cm wide`);
-  if (d.height_cm > 0) parts.push(`${d.height_cm} cm tall`);
-  if (d.depth_cm > 0) parts.push(`${d.depth_cm} cm deep`);
-  const sizeText = parts.join(", ") || "about 14 cm wide (hand-sized)";
+// Placement convention shared with the viewer (index.html STAGE constants):
+// the room is generated WITHOUT the stone — the client renders the stone's
+// cutout as a 3D layer at these exact coordinates, so its size is guaranteed
+// by geometry (see OCW rnd/2026-06-13-stone-size-realism/SYNTHESIS.md).
+//   small (<40cm): empty pedestal, top ~1.05m, ~1.15m from camera, image center
+//   big   (≥40cm): clear floor area ~2.2m from camera, image center
+function placement(stoneMeta) {
+  const d = stoneMeta?.dimensions || {};
   const big = Math.max(d.width_cm || 0, d.height_cm || 0, d.depth_cm || 0) >= 40;
   return {
-    sizeText,
-    scaleWord: big ? "a substantial sculptural stone" : "a hand-sized collectible mineral",
-    placement: big
-      ? "standing directly on the floor as a sculptural centerpiece"
-      : "on an elegant display pedestal or small table",
+    big,
+    stage: big
+      ? "A clear, open stretch of floor lies at the horizontal center of the image, about 2 meters from the camera — kept completely empty, as if awaiting a sculpture. Nothing stands there."
+      : "An elegant, simple display pedestal about 1 meter tall stands at the horizontal center of the image, about 1.2 meters from the camera. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty pedestal as if awaiting a treasured object.",
   };
 }
 
-async function generate({ base, key, name, sizeText, scaleWord, placement, desc }) {
-  const restylePrompt = `The first image is a 360-degree equirectangular panorama of an interior, captured from the center of the room at eye level. The second image is a photograph of a stone ("${name}") whose real size is ${sizeText}.
+async function generate({ base, key, stage, desc }) {
+  const restylePrompt = `This image is a 360-degree equirectangular panorama of an interior, captured from the center of the room at eye level.
 
 Completely redesign the interior into the visitor's own home, as they describe it: ${desc}
 
 NON-NEGOTIABLE RULES, regardless of the description:
 1. The room is SPACIOUS — high ceilings, walls at a generous distance from the camera; the visitor stands in the middle of an open, airy space. If the description implies a small space, render its spirit in a generous version of it.
 2. The room is RICH and lived-in: layered textiles, artwork on the walls, plants, books, lamps, warm material detail — a loved, fully furnished home in the spirit of the description, never an empty showroom.
-3. The stone stands at the CENTER OF THE ROOM: ${placement}, about three to four meters in front of the camera, at the horizontal center of the image. It is the focal point the whole room is arranged around — visible, but with breathing room around it.
-4. The stone's size is EXACTLY its real size — ${sizeText}, ${scaleWord}, NOT larger and NOT smaller. A stone rendered at a different size than ${sizeText} is wrong.
+3. ${stage}
 
-Use the exact stone from the second photograph: preserve its true colors, banding, texture and silhouette, and light it consistently with the room.
-
-CRITICAL: keep the equirectangular projection of the first image exactly — same camera position, full 360x180 sphere, floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text, no watermarks.`;
+CRITICAL: keep the equirectangular projection of the input exactly — same camera position, full 360x180 sphere, floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text, no watermarks.`;
 
   const styled = await gemini(key, [
     { text: restylePrompt },
     { inlineData: { mimeType: "image/jpeg", data: base.template.toString("base64") } },
-    { inlineData: { mimeType: "image/jpeg", data: base.stone.toString("base64") } },
   ], "restyle");
 
   const rolled = await roll50(styled);
@@ -133,7 +127,7 @@ Repair ONLY that vertical seam zone: blend the architecture and surfaces across 
 async function walkStep({ key, pano, direction }) {
   const movePrompt = `This is a 360-degree equirectangular panorama of a room, captured from its center at eye level.
 
-Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves. Keep the displayed stone exactly as it is, at its same physical size and place in the room.
+Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves.
 
 CRITICAL: output a full 360x180 equirectangular panorama — floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text.`;
 
@@ -157,6 +151,28 @@ async function finish(repaired) {
   const { width: w, height: h } = await sharp(back).metadata();
   if (w !== 2 * h) return sharp(back).resize(2 * h, h, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
   return back;
+}
+
+// Paste the stone cutout into a finished pano at the geometrically exact
+// pixel size (used for the email path — the live viewer renders the stone
+// as a 3D layer instead).
+async function compositeStone(jpeg, cutout, dimensions, big) {
+  const d = dimensions || {};
+  const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
+  const hcm = d.height_cm || wcm * 0.7;
+  const D = big ? 2.2 : 1.15;                       // m from camera (placement convention)
+  const centerY = big ? hcm / 200 : 1.05 + hcm / 200; // m above floor
+  const CAM = 1.6;
+  const { width: W, height: H } = await sharp(jpeg).metadata();
+  const pxW = Math.max(8, Math.round((2 * Math.atan(wcm / 200 / D)) / (2 * Math.PI) * W));
+  const pxH = Math.max(8, Math.round((2 * Math.atan(hcm / 200 / D)) / Math.PI * H));
+  const pitch = Math.atan((CAM - centerY) / D);     // + = below horizon
+  const cy = Math.round(H / 2 + (pitch / Math.PI) * H);
+  const stonePng = await sharp(cutout).resize(pxW, pxH, { fit: "fill" }).png().toBuffer();
+  return sharp(jpeg)
+    .composite([{ input: stonePng, left: Math.round(W / 2 - pxW / 2), top: Math.round(cy - pxH / 2) }])
+    .jpeg({ quality: 92 })
+    .toBuffer();
 }
 
 async function sendEmail({ resendKey, to, name, jpeg }) {
@@ -255,24 +271,20 @@ module.exports = async (req, res) => {
     row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/stones?id=eq.${stone}&select=name,width_cm,height_cm,depth_cm,images`, { headers: h })
       .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
   }
-  const originalUrl = row?.images?.original || `${host}/stones/${stone}/original.jpg`;
-  const [stoneRes, tplRes, manifestRes] = await Promise.all([
-    fetch(originalUrl),
-    fetch(`${host}/${TEMPLATE}`),
-    fetch(`${host}/stones/manifest.json`),
-  ]);
-  if (!stoneRes.ok || !tplRes.ok) {
-    res.statusCode = 400;
-    return res.json({ error: "Unknown stone." });
+  const tplRes = await fetch(`${host}/${TEMPLATE}`);
+  if (!tplRes.ok) {
+    res.statusCode = 500;
+    return res.json({ error: "Template missing." });
   }
-  const base = {
-    stone: Buffer.from(await stoneRes.arrayBuffer()),
-    template: Buffer.from(await tplRes.arrayBuffer()),
-  };
-  const manifest = manifestRes.ok ? await manifestRes.json() : [];
-  let meta = manifest.find((s) => s.id === stone);
-  if (row) meta = { name: row.name, dimensions: { width_cm: Number(row.width_cm), height_cm: Number(row.height_cm), depth_cm: Number(row.depth_cm) } };
-  const args = { base, key: KEY, name: meta?.name || stone, ...dims(meta), desc };
+  const base = { template: Buffer.from(await tplRes.arrayBuffer()) };
+  let meta = null;
+  if (row) meta = { name: row.name, dimensions: { width_cm: Number(row.width_cm) || null, height_cm: Number(row.height_cm) || null, depth_cm: Number(row.depth_cm) || null } };
+  else {
+    const manifest = await fetch(`${host}/stones/manifest.json`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    meta = manifest.find((s) => s.id === stone) || null;
+  }
+  const plan = placement(meta);
+  const args = { base, key: KEY, stage: plan.stage, desc };
 
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
     // fire-and-forget dream log
@@ -289,11 +301,19 @@ module.exports = async (req, res) => {
 
   if (to) {
     // Respond now; finish + deliver in the background (within maxDuration).
+    // The emailed JPEG gets the stone composited server-side at geometric size.
     res.statusCode = 202;
     res.json({ queued: true });
     waitUntil(
       generate(args)
-        .then((jpeg) => sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: args.name, jpeg }))
+        .then(async (jpeg) => {
+          const cutoutUrl = row?.images?.cutout;
+          if (cutoutUrl) {
+            const c = await fetch(cutoutUrl);
+            if (c.ok) jpeg = await compositeStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big);
+          }
+          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, jpeg });
+        })
         .catch((e) => console.error("dream-email failed:", e.message)),
     );
     return;

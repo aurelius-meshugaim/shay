@@ -540,6 +540,38 @@
       const maxLat=Math.max(15, coverage*85);
       let lon=PANO_INIT_LON, lat=0, vlon=0, vlat=0, drag=null, raf=0;
       window.panoYaw=(l,t)=>{ lon=l; if(t!==undefined) lat=t; }; // test/calibration hook
+
+      // ---- the stone as a 3D layer (same object, sharp, true size, every angle) ----
+      // World units = meters; camera eye at y=0 (1.6m above floor). The room is
+      // a backdrop sphere; the stone is the photo's cutout at its real
+      // dimensions, placed by the same convention the server prompts for.
+      const yawDir=(deg)=>{ const t=THREE.MathUtils.degToRad(deg);
+        return new THREE.Vector3(Math.cos(t),0,Math.sin(t)); };
+      const camPos=new THREE.Vector3(0,0,0); let panoNorth=180, stone=null, stoneWorld=null;
+      if(activeStone&&activeStone.cutout){
+        const d=activeStone.dimensions||{};
+        const big=Math.max(d.width_cm||0,d.height_cm||0,d.depth_cm||0)>=40;
+        const wcm=d.width_cm||d.height_cm||d.depth_cm||14, hcm=d.height_cm||wcm*0.7;
+        const D=big?2.2:1.15, centerY=(big?hcm/200:1.05+hcm/200)-1.6;
+        new THREE.TextureLoader().load(activeStone.cutout,(t)=>{
+          t.colorSpace=THREE.SRGBColorSpace;
+          t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+          const aspect=t.image.width/t.image.height, hM=hcm/100;
+          stone=new THREE.Mesh(new THREE.PlaneGeometry(hM*aspect,hM),
+            new THREE.MeshBasicMaterial({map:t,transparent:true,side:THREE.DoubleSide}));
+          stoneWorld=yawDir(180).multiplyScalar(D).setY(centerY);
+          scene.add(stone); placeStone();
+        });
+      }
+      function placeStone(){
+        if(!stone) return;
+        const rel=stoneWorld.clone().sub(camPos);
+        const wy=THREE.MathUtils.radToDeg(Math.atan2(rel.z,rel.x));
+        const localLon=180+(wy-panoNorth);
+        const p=yawDir(localLon).multiplyScalar(Math.hypot(rel.x,rel.z)).setY(rel.y);
+        stone.position.copy(p);
+        stone.lookAt(0,p.y,0); // camera stays at origin; billboard horizontally
+      }
       function frame(){
         raf=requestAnimationFrame(frame);
         if(!drag){ lon+=vlon; lat+=vlat; vlon*=.93; vlat*=.93; }
@@ -555,7 +587,7 @@
         vlon=nl-lon; vlat=nt-lat; lon=nl; lat=nt; };
       el.addEventListener('pointerdown',e=>{ el.setPointerCapture(e.pointerId); down(e.clientX,e.clientY); });
       el.addEventListener('pointermove',e=>move(e.clientX,e.clientY));
-      el.addEventListener('pointerup',()=>{ drag=null; });
+      el.addEventListener('pointerup',()=>{ drag=null; schedulePrefetch(); });
       el.addEventListener('wheel',e=>{ e.preventDefault();
         cam.fov=Math.max(40,Math.min(95,cam.fov+e.deltaY*.04)); cam.updateProjectionMatrix(); },{passive:false});
       const onResize=()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
@@ -564,14 +596,24 @@
       panoState={
         blob,
         getYaw:()=>((lon%360)+360)%360,
-        async swap(newBlob){
+        async swap(newBlob, yawAtStep){
           const u=URL.createObjectURL(newBlob), t=await loadTex(u);
           const old=mat.map; mat.map=t; mat.needsUpdate=true; old.dispose(); URL.revokeObjectURL(u);
-          panoState.blob=newBlob; lon=180; lat=0; vlon=vlat=0;
+          panoState.blob=newBlob;
+          if(yawAtStep!==undefined){           // a walk: camera moved 3m toward yawAtStep
+            const worldYaw=panoNorth+(yawAtStep-180);
+            camPos.add(yawDir(worldYaw).multiplyScalar(3));
+            panoNorth=((worldYaw%360)+360)%360;
+            placeStone();
+          }
+          lon=180; lat=0; vlon=vlat=0;
         },
+        stepBack(prevBlob, prevCam, prevNorth){ camPos.copy(prevCam); panoNorth=prevNorth; placeStone(); return panoState.swap(prevBlob); },
+        snapshot(){ return { cam:camPos.clone(), north:panoNorth }; },
         destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
           renderer.dispose(); mat.map.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
       pano.classList.add('open'); frame();
+      schedulePrefetch();
     }
     function closePano(){
       pano.classList.remove('open');
@@ -579,39 +621,70 @@
       document.getElementById('panoBack').hidden=true;
       if(panoState){ panoState.destroy(); panoState=null; }
       walking=false; panoHistory=[];
+      prefetch=null; clearTimeout(prefetchTimer);
     }
 
-    // ---- street-view walking ----
+    // ---- street-view walking + speculative prefetch ----
     const WALK_LINES=["Taking three steps&hellip;","Keeping every detail in place&hellip;","Looking around&hellip;"];
     let walking=false, panoHistory=[];
+    let prefetch=null, prefetchTimer=null, prefetchBusy=false;
+    const blobB64=(blob)=>new Promise((ok,fail)=>{ const fr=new FileReader();
+      fr.onload=()=>ok(fr.result.split(',')[1]); fr.onerror=fail; fr.readAsDataURL(blob); });
+    const angDiff=(a,b)=>((a-b+540)%360)-180;
+    async function walkCall(blob,yaw){
+      const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ walk:true, pano:await blobB64(blob), yawDeg:yaw }) });
+      if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||"Couldn't take that step."); }
+      return r.blob();
+    }
+    // While the visitor lingers facing one way, quietly pre-walk that way —
+    // most walk clicks then land instantly.
+    function schedulePrefetch(){ clearTimeout(prefetchTimer); prefetchTimer=setTimeout(doPrefetch, 4000); }
+    async function doPrefetch(){
+      if(!panoState||walking||prefetchBusy) return;
+      const yaw=panoState.getYaw();
+      if(prefetch&&prefetch.src===panoState.blob&&Math.abs(angDiff(prefetch.yaw,yaw))<20) return;
+      prefetchBusy=true;
+      const src=panoState.blob;
+      try{
+        const blob=await walkCall(src,yaw);
+        if(panoState&&panoState.blob===src) prefetch={src,yaw,blob};
+      }catch(_){ /* speculative — silent */ }
+      finally{ prefetchBusy=false; if(panoState&&!walking) schedulePrefetch(); }
+    }
     async function walkForward(e){
       if(e) e.stopPropagation();
       if(walking||!panoState) return;
       walking=true;
       const btn=document.getElementById('panoWalk'), ov=document.getElementById('panoBuilding');
-      btn.disabled=true; ov.hidden=false;
-      let wi=0; ov.innerHTML=WALK_LINES[0];
-      const tick=setInterval(()=>{ ov.innerHTML=WALK_LINES[++wi%WALK_LINES.length]; }, 6000);
+      btn.disabled=true;
+      const yaw=panoState.getYaw();
+      const hit=prefetch&&prefetch.src===panoState.blob&&Math.abs(angDiff(prefetch.yaw,yaw))<20;
+      let tick=null;
+      if(!hit){ ov.hidden=false; let wi=0; ov.innerHTML=WALK_LINES[0];
+        tick=setInterval(()=>{ ov.innerHTML=WALK_LINES[++wi%WALK_LINES.length]; }, 6000); }
       try{
-        const b64=await new Promise((ok,fail)=>{ const fr=new FileReader();
-          fr.onload=()=>ok(fr.result.split(',')[1]); fr.onerror=fail; fr.readAsDataURL(panoState.blob); });
-        const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ walk:true, pano:b64, yawDeg:panoState.getYaw() }) });
-        if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||"Couldn't take that step."); }
-        panoHistory.push(panoState.blob);
-        await panoState.swap(await r.blob());
+        const stepBlob=hit?prefetch.blob:await walkCall(panoState.blob,yaw);
+        const stepYaw=hit?prefetch.yaw:yaw;
+        panoHistory.push({ blob:panoState.blob, ...panoState.snapshot() });
+        prefetch=null;
+        await panoState.swap(stepBlob, stepYaw);
         document.getElementById('panoBack').hidden=false;
+        schedulePrefetch();
       }catch(err){
-        ov.innerHTML=err.message; await new Promise(ok=>setTimeout(ok,2200));
+        ov.hidden=false; ov.innerHTML=err.message; await new Promise(ok=>setTimeout(ok,2200));
       }finally{
-        clearInterval(tick); ov.hidden=true; btn.disabled=false; walking=false;
+        if(tick) clearInterval(tick); ov.hidden=true; btn.disabled=false; walking=false;
       }
     }
     async function walkBack(e){
       if(e) e.stopPropagation();
       if(walking||!panoState||!panoHistory.length) return;
-      await panoState.swap(panoHistory.pop());   // instant — no generation
+      const prev=panoHistory.pop();
+      prefetch=null;
+      await panoState.stepBack(prev.blob, prev.cam, prev.north);   // instant — no generation
       if(!panoHistory.length) document.getElementById('panoBack').hidden=true;
+      schedulePrefetch();
     }
     // capture phase + stopPropagation so one Escape closes only the pano,
     // not the lightbox underneath it

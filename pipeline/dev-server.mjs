@@ -50,6 +50,11 @@ createServer(async (req, res) => {
       res.json = (obj) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
       if (MOCK) {
         if (req.method === "GET") return res.json({ emailDelivery: true });
+        if (req.body.walk) {
+          await new Promise((ok) => setTimeout(ok, Number(process.env.MOCK_DELAY || 800)));
+          res.setHeader("Content-Type", "image/jpeg");
+          return res.end(await readFile(path.join(ROOT, "stones/flint/dream-sample.jpg")));
+        }
         const desc = String(req.body.description || "").trim();
         if (desc.length < 3) { res.statusCode = 400; return res.json({ error: "Describe your home in 3–600 characters." }); }
         if (req.body.email) { res.statusCode = 202; return res.json({ queued: true }); }

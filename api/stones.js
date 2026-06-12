@@ -42,6 +42,7 @@ module.exports = async (req, res) => {
       top_offer_usd: topOffer[m.id] ?? null,
       original: m.original,
       variants: m.variants,
+      cutout: db?.images?.cutout || null,
     };
   });
 
@@ -63,6 +64,7 @@ module.exports = async (req, res) => {
       top_offer_usd: topOffer[r.id] ?? null,
       original: r.images.original,
       variants,
+      cutout: r.images.cutout || null,
     });
   }
 
