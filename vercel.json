@@ -3,12 +3,12 @@
     "api/dream.js": { "maxDuration": 60 },
     "api/admin.js": { "maxDuration": 60 }
   },
-  "routes": [
+  "redirects": [
     {
-      "src": "/",
+      "source": "/",
       "has": [{ "type": "host", "value": "admin.shaym.beauty" }],
-      "dest": "/admin.html"
-    },
-    { "handle": "filesystem" }
+      "destination": "/admin.html",
+      "permanent": false
+    }
   ]
 }
