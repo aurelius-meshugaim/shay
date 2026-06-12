@@ -146,6 +146,36 @@ Return ONLY JSON:
   return { name: fields.name || stoneRow.name, character: analysis.character };
 }
 
+// Transparent cutout for the viewer's 3D stone layer: Gemini re-renders the
+// stone on chroma green, sharp keys it out (same recipe as pipeline/make-cutout.mjs).
+async function stageCutout(stoneRow) {
+  const sharp = require("sharp");
+  const buf = await fetchOriginal(stoneRow);
+  const prompt = `Isolate the stone from this photo: render the EXACT same stone — identical shape, texture, colors, lighting and angle — floating on a completely uniform pure green background (#00FF00). NOTHING else from the photo may remain — no ground, no shadow, no surface under the stone. Only the stone itself, surrounded on ALL sides (including below) by flat chroma green. Do not alter the stone itself in any way.`;
+  const green = await gemini(IMAGE_MODEL, [imagePart(buf), { text: prompt }], { imageOut: true });
+  const { data: px, info } = await sharp(green).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  for (let i = 0; i < px.length; i += 4) {
+    const [R, G, B] = [px[i], px[i + 1], px[i + 2]];
+    if (G > 110 && G > R * 1.45 && G > B * 1.45) px[i + 3] = 0;
+    else if (G > 90 && G > R * 1.2 && G > B * 1.2) px[i + 3] = Math.round(255 * 0.35);
+  }
+  const cutout = await sharp(px, { raw: { width: info.width, height: info.height, channels: 4 } })
+    .trim({ threshold: 10 })
+    .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  const { url, headers } = sb();
+  const r = await fetch(`${url}/storage/v1/object/stones/cutouts/${stoneRow.id}.png`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "image/png", "x-upsert": "true" },
+    body: cutout,
+  });
+  if (!r.ok) throw new Error(`cutout upload: ${r.status}`);
+  const publicUrl = `${url}/storage/v1/object/public/stones/cutouts/${stoneRow.id}.png`;
+  await patch(stoneRow.id, { images: { ...(stoneRow.images || {}), cutout: publicUrl } });
+  return { cutout: publicUrl };
+}
+
 const COMPOSITION_RULE =
   " Composition requirement: the stone is perfectly centered in the frame, both horizontally and vertically — it is the clear central subject of the image.";
 
@@ -208,6 +238,7 @@ module.exports = async (req, res) => {
     if (!stone) { res.statusCode = 404; return res.json({ error: "Unknown stone." }); }
 
     if (action === "analyze") return res.json(await stageAnalyze(stone));
+    if (action === "cutout") return res.json(await stageCutout(stone));
     if (action === "variant") return res.json(await stageVariant(stone, String(req.body.kind)));
     if (action === "finalize") {
       const missing = VARIANTS.filter((v) => !stone.images?.[v]);

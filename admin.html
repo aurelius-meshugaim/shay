@@ -136,6 +136,7 @@ function renderPreviews(){
 
 const STEPS = [
   ['analyze',  'Studying the stone…'],
+  ['cutout',   'Tracing its silhouette…'],
   ['blur',     'Shooting the gallery portrait…'],
   ['outdoor',  'Taking it outside…'],
   ['indoor',   'Bringing it indoors…'],
@@ -171,6 +172,7 @@ async function createStone(){
         const a = await call({ action:'analyze', id });
         if (a.name) log.textContent = 'It has a name: ' + a.name + '…';
       }
+      else if (step==='cutout') await call({ action:'cutout', id });
       else if (step==='finalize') await call({ action:'finalize', id });
       else await call({ action:'variant', id, kind:step });
     }
