@@ -26,7 +26,8 @@ const TEMPLATE = "stones/templates/spacious-1.jpg";
 
 // Best-effort per-instance rate limit (no shared store yet — see README).
 const hits = new Map(); // ip → [timestamps]
-const RL_MAX = 6, RL_WIN = 60 * 60 * 1000;
+// generous: dreams + walks + speculative prefetches all count one each
+const RL_MAX = 40, RL_WIN = 60 * 60 * 1000;
 function limited(ip) {
   const now = Date.now(), arr = (hits.get(ip) || []).filter((t) => now - t < RL_WIN);
   arr.push(now);
