@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
       character: db?.character || m.character,
       status: db?.status || "available",
       dimensions: db
-        ? { width_cm: Number(db.width_cm), height_cm: Number(db.height_cm), depth_cm: Number(db.depth_cm), approx: db.dimensions_approx }
+        ? { width_cm: db.width_cm && Number(db.width_cm), height_cm: db.height_cm && Number(db.height_cm), depth_cm: db.depth_cm && Number(db.depth_cm), approx: db.dimensions_approx }
         : m.dimensions || null,
       top_offer_usd: topOffer[m.id] ?? null,
       original: m.original,
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
       name: r.name,
       character: r.character || "",
       status: r.status,
-      dimensions: { width_cm: Number(r.width_cm), height_cm: Number(r.height_cm), depth_cm: Number(r.depth_cm), approx: r.dimensions_approx },
+      dimensions: { width_cm: r.width_cm && Number(r.width_cm), height_cm: r.height_cm && Number(r.height_cm), depth_cm: r.depth_cm && Number(r.depth_cm), approx: r.dimensions_approx },
       top_offer_usd: topOffer[r.id] ?? null,
       original: r.images.original,
       variants,

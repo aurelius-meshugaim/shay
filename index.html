@@ -254,6 +254,8 @@
       border:1px solid rgba(255,255,255,.25); transition:all .2s; }
     .pano-walk:hover { background:rgba(0,0,0,.75); border-color:rgba(255,255,255,.5); }
     .pano-walk:disabled { opacity:.4; cursor:default; }
+    .pano-back { transform:translateX(calc(-50% - 8.5rem)); }
+    .pano-back[hidden] { display:none; }
     .pano-building { position:absolute; inset:0; z-index:3; display:flex;
       align-items:center; justify-content:center; background:rgba(4,6,9,.55);
       backdrop-filter:blur(3px); font-size:clamp(1.05rem,2.8vw,1.5rem); font-weight:650;
@@ -328,6 +330,7 @@
     <div class="pano-title">your home &mdash; 360&deg;</div>
     <button class="pano-close" aria-label="Close 360 view" onclick="closePano()">&times;</button>
     <button class="pano-walk" id="panoWalk" onclick="walkForward(event)" title="Walk three steps in the direction you're facing">&#8679;&nbsp;walk</button>
+    <button class="pano-walk pano-back" id="panoBack" hidden onclick="walkBack(event)" title="Step back to where you stood">&#8678;&nbsp;back</button>
     <div class="pano-building" id="panoBuilding" hidden></div>
     <div class="pano-hint">drag to look around &middot; walk to move</div>
   </div>
@@ -341,8 +344,10 @@
 
     function sizeLabel(d){
       if(!d) return "";
-      const w=d.width_cm;
-      return (w>=100 ? (w/100).toFixed(1).replace(/\.0$/,'')+" m" : w+" cm") + " wide";
+      const pick=[['width_cm','wide'],['height_cm','tall'],['depth_cm','deep']].find(([k])=>d[k]>0);
+      if(!pick) return "";
+      const v=d[pick[0]];
+      return (v>=100 ? (v/100).toFixed(1).replace(/\.0$/,'')+" m" : v+" cm") + " " + pick[1];
     }
     function slidesFor(s){
       const out=Object.entries(s.variants||{}).map(([k,v])=>({src:v.src,name:VLABEL[k]||k,cap:v.caption||""}));
@@ -450,6 +455,7 @@
       if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
       dreaming=true; go.disabled=true; msg.className='dream-msg';
       dreamSlide.classList.add('dreaming');
+      nameEl.textContent=''; cap.textContent='';   // the creation wording replaces every other line
       let li=0; msg.textContent=DREAM_LINES[0];
       const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 5000);
       // after 5s of dreaming, offer email delivery (if the backend can send)
@@ -471,7 +477,7 @@
         clearInterval(ticker); clearTimeout(emailTimer);
         msg.textContent=err.message||'Something went wrong — try again.';
         msg.className='dream-msg err';
-      }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); }
+      }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); show(idx); }
     }
     async function emailDream(e){
       if(e) e.stopPropagation();
@@ -568,13 +574,14 @@
     function closePano(){
       pano.classList.remove('open');
       document.getElementById('panoBuilding').hidden=true;
+      document.getElementById('panoBack').hidden=true;
       if(panoState){ panoState.destroy(); panoState=null; }
-      walking=false;
+      walking=false; panoHistory=[];
     }
 
     // ---- street-view walking ----
     const WALK_LINES=["Taking three steps&hellip;","Keeping every detail in place&hellip;","Looking around&hellip;"];
-    let walking=false;
+    let walking=false, panoHistory=[];
     async function walkForward(e){
       if(e) e.stopPropagation();
       if(walking||!panoState) return;
@@ -589,12 +596,20 @@
         const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify({ walk:true, pano:b64, yawDeg:panoState.getYaw() }) });
         if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||"Couldn't take that step."); }
+        panoHistory.push(panoState.blob);
         await panoState.swap(await r.blob());
+        document.getElementById('panoBack').hidden=false;
       }catch(err){
         ov.innerHTML=err.message; await new Promise(ok=>setTimeout(ok,2200));
       }finally{
         clearInterval(tick); ov.hidden=true; btn.disabled=false; walking=false;
       }
+    }
+    async function walkBack(e){
+      if(e) e.stopPropagation();
+      if(walking||!panoState||!panoHistory.length) return;
+      await panoState.swap(panoHistory.pop());   // instant — no generation
+      if(!panoHistory.length) document.getElementById('panoBack').hidden=true;
     }
     // capture phase + stopPropagation so one Escape closes only the pano,
     // not the lightbox underneath it

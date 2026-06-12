@@ -77,8 +77,13 @@ const roll50 = (buf) => roll(buf, 0.5);
 function dims(stoneMeta) {
   const d = stoneMeta?.dimensions;
   if (!d) return { sizeText: "about 14 cm wide (hand-sized)", scaleWord: "a hand-sized collectible mineral", placement: "on an elegant display pedestal or small table" };
-  const sizeText = `${d.width_cm} cm wide, ${d.height_cm} cm tall, ${d.depth_cm} cm deep`;
-  const big = d.width_cm >= 40;
+  // any subset of the three measurements may be present
+  const parts = [];
+  if (d.width_cm > 0) parts.push(`${d.width_cm} cm wide`);
+  if (d.height_cm > 0) parts.push(`${d.height_cm} cm tall`);
+  if (d.depth_cm > 0) parts.push(`${d.depth_cm} cm deep`);
+  const sizeText = parts.join(", ") || "about 14 cm wide (hand-sized)";
+  const big = Math.max(d.width_cm || 0, d.height_cm || 0, d.depth_cm || 0) >= 40;
   return {
     sizeText,
     scaleWord: big ? "a substantial sculptural stone" : "a hand-sized collectible mineral",

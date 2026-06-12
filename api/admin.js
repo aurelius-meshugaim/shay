@@ -179,8 +179,8 @@ module.exports = async (req, res) => {
     if (action === "ping") return res.json({ ok: true });
     if (action === "create") {
       const { name = "", width_cm, height_cm, depth_cm, photos = [] } = req.body;
-      const dims = [width_cm, height_cm, depth_cm].map(Number);
-      if (dims.some((d) => !(d > 0 && d < 10000))) { res.statusCode = 400; return res.json({ error: "Dimensions (cm) are required." }); }
+      const dims = [width_cm, height_cm, depth_cm].map((d) => (Number(d) > 0 && Number(d) < 10000 ? Number(d) : null));
+      if (dims.every((d) => d === null)) { res.statusCode = 400; return res.json({ error: "At least one dimension (cm) is required." }); }
       if (!Array.isArray(photos) || photos.length < 1 || photos.length > 3) { res.statusCode = 400; return res.json({ error: "1 to 3 photos." }); }
       const base = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const id = (base || "stone") + "-" + Math.random().toString(36).slice(2, 6);
