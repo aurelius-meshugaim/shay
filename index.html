@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Stones</title>
+  <link rel="icon" href="favicon.ico" sizes="48x48" />
+  <link rel="icon" type="image/png" href="favicon.png" sizes="256x256" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <style>
     :root { --c1:#9fb4c8; --c2:#d7e2ec; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -160,6 +163,58 @@
     .offer-msg { min-height:1em; font-size:.8rem; font-weight:300; line-height:1.4;
       color:var(--c2); text-align:center; }
     .offer-msg.err { color:#ff9d9d; }
+
+    /* ---- "Your Home" dream slide (small + blurred, coming-soon) ---- */
+    .lb-thumbs button.dream-thumb img { filter: blur(4px) brightness(.6); transform: scale(.86); }
+    .dream-slide { position:absolute; inset:0; opacity:0; pointer-events:none;
+      transition:opacity .4s ease; display:flex; align-items:center; justify-content:center; }
+    .dream-slide.active { opacity:1; pointer-events:auto; }
+    .dream-slide .dream-bg { position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; filter: blur(26px) brightness(.42) saturate(.85); transform:scale(1.15); }
+    .dream-panel { position:relative; z-index:1; width:min(88%,26rem); display:flex;
+      flex-direction:column; gap:.7rem; text-align:center; padding:1rem; }
+    .dream-soon { font-size:.62rem; font-weight:600; letter-spacing:.5em; text-indent:.5em;
+      text-transform:uppercase; color:rgba(255,255,255,.65); }
+    .dream-head { font-size:clamp(1rem,2.4vw,1.3rem); font-weight:700; color:#fff;
+      text-shadow:0 1px 4px rgba(0,0,0,.8); }
+    .dream-sub { font-size:clamp(.72rem,1.6vw,.84rem); font-weight:300; line-height:1.5;
+      color:rgba(255,255,255,.78); }
+    .dream-panel textarea { width:100%; min-height:4.6em; resize:none; padding:.7rem .85rem;
+      border-radius:12px; font-family:inherit; font-size:.9rem; line-height:1.45; color:#fff;
+      border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.07); outline:none;
+      transition:border-color .2s, background .2s; }
+    .dream-panel textarea::placeholder { color:rgba(255,255,255,.32); }
+    .dream-panel textarea:focus { border-color:var(--c2); background:rgba(255,255,255,.11); }
+    .dream-go { border:0; cursor:pointer; padding:.66rem 1.4rem; border-radius:999px;
+      font-family:inherit; font-size:.74rem; font-weight:600; letter-spacing:.22em;
+      text-transform:uppercase; color:#06080b;
+      background:linear-gradient(120deg,#fff,var(--c2) 70%,var(--c1));
+      box-shadow:0 6px 22px -6px rgba(0,0,0,.7); transition:transform .2s, opacity .2s; }
+    .dream-go:hover { transform:translateY(-2px); }
+    .dream-go:disabled { opacity:.55; cursor:default; transform:none; }
+    .dream-msg { min-height:1.3em; font-size:.78rem; font-weight:300; font-style:italic;
+      color:var(--c2); }
+    .dream-msg.err { color:#ff9d9d; font-style:normal; }
+
+    /* ---- 360 panorama viewer ---- */
+    .pano { position:fixed; inset:0; z-index:30; display:none; background:#06080b; }
+    .pano.open { display:block; animation:lbIn .3s ease; }
+    .pano canvas { position:absolute; inset:0; width:100%; height:100%; display:block;
+      cursor:grab; touch-action:none; }
+    .pano canvas:active { cursor:grabbing; }
+    .pano-hint { position:absolute; bottom:26px; left:50%; transform:translateX(-50%);
+      font-size:.68rem; font-weight:500; letter-spacing:.32em; text-indent:.32em;
+      text-transform:uppercase; color:rgba(255,255,255,.55); pointer-events:none;
+      text-shadow:0 1px 3px rgba(0,0,0,.9); animation:hintFade 6s ease 2s forwards; }
+    @keyframes hintFade { to { opacity:0; } }
+    .pano-title { position:absolute; top:24px; left:50%; transform:translateX(-50%);
+      font-size:.72rem; font-weight:600; letter-spacing:.4em; text-indent:.4em;
+      text-transform:uppercase; color:rgba(255,255,255,.85); pointer-events:none;
+      text-shadow:0 1px 4px rgba(0,0,0,.9); }
+    .pano-close { position:absolute; top:18px; right:22px; width:42px; height:42px; border:0;
+      border-radius:50%; background:rgba(0,0,0,.45); color:#fff; font-size:1.5rem; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; z-index:2; }
+    .pano-close:hover { background:rgba(0,0,0,.75); }
 </style>
 </head>
 <body>
@@ -188,6 +243,17 @@
     <div class="lb-title">Banded Flint</div>
     <div class="lb-name" id="lbName"></div>
     <div class="lb-stage" id="lbStage">
+      <div class="dream-slide" id="dreamSlide">
+        <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
+        <div class="dream-panel">
+          <div class="dream-soon">coming soon</div>
+          <div class="dream-head">This stone, in your home</div>
+          <div class="dream-sub">Describe your home — a room, the light, what's on the shelves — and watch the stone find its place there, in full&nbsp;360&deg;.</div>
+          <textarea id="dreamDesc" maxlength="600" placeholder="Tall windows, late-afternoon sun, a worn leather armchair, my grandmother's rug&hellip;" onclick="event.stopPropagation()"></textarea>
+          <button class="dream-go" id="dreamGo" onclick="startDream(event)">Dream it &mdash; 360&deg;</button>
+          <div class="dream-msg" id="dreamMsg" role="status"></div>
+        </div>
+      </div>
       <button class="lb-nav prev" aria-label="Previous" onclick="lbGo(-1,event)">&#10094;</button>
       <button class="lb-nav next" aria-label="Next" onclick="lbGo(1,event)">&#10095;</button>
     </div>
@@ -214,6 +280,12 @@
     </div>
   </div>
 
+  <div class="pano" id="pano" aria-modal="true" role="dialog" aria-label="360 view of the stone in your home">
+    <div class="pano-title">your home &mdash; 360&deg;</div>
+    <button class="pano-close" aria-label="Close 360 view" onclick="closePano()">&times;</button>
+    <div class="pano-hint">drag to look around</div>
+  </div>
+
   <script>
     const FLINT_NAME = "Banded Flint";
     const FLINT = [
@@ -222,15 +294,20 @@
       { src:"stones/flint/indoor.jpg",   name:"Indoor",             cap:"Geological art, precisely unveiled." },
       { src:"stones/flint/creative.jpg", name:"Creative",           cap:"A star-shard, eons in its core." },
       { src:"stones/flint/original.jpg", name:"Original",           cap:"The original photograph." },
+      { dream:true, src:"stones/flint/blur.jpg", name:"Your Home",  cap:"Coming soon — unless you describe it." },
     ];
     const lb=document.getElementById('lb'), stage=document.getElementById('lbStage'),
           cap=document.getElementById('lbCap'), nameEl=document.getElementById('lbName'),
           thumbs=document.getElementById('lbThumbs');
     let idx=0; const imgs=[];
     FLINT.forEach((v,i)=>{
-      const im=document.createElement('img'); im.src=v.src; im.alt=v.name; im.loading='lazy';
-      stage.insertBefore(im, stage.querySelector('.lb-nav.next')); imgs.push(im);
+      if(v.dream){ imgs.push(document.getElementById('dreamSlide')); }
+      else {
+        const im=document.createElement('img'); im.src=v.src; im.alt=v.name; im.loading='lazy';
+        stage.insertBefore(im, stage.querySelector('.lb-nav.next')); imgs.push(im);
+      }
       const b=document.createElement('button'); b.setAttribute('aria-label',v.name);
+      if(v.dream) b.classList.add('dream-thumb');
       b.innerHTML='<img src="'+v.src+'" alt=""><span>'+v.name+'</span>';
       b.onclick=(e)=>{ e.stopPropagation(); show(i); }; thumbs.appendChild(b);
     });
@@ -270,9 +347,112 @@
         window.location.href='mailto:'+OFFER_TO+'?subject='+sub+'&body='+body;
       } }
     function lbGo(d,e){ if(e) e.stopPropagation(); show(idx+d); }
-    function lbKey(e){ if(e.key==='Escape')closeLB(); else if(e.key==='ArrowRight')lbGo(1); else if(e.key==='ArrowLeft')lbGo(-1); }
+    function lbKey(e){
+      if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;           // typing, not navigating
+      if(document.getElementById('pano').classList.contains('open')) return; // pano has its own Escape
+      if(e.key==='Escape')closeLB(); else if(e.key==='ArrowRight')lbGo(1); else if(e.key==='ArrowLeft')lbGo(-1); }
     lb.addEventListener('click', e=>{ if(e.target===lb) closeLB(); });   // click backdrop to close
     document.querySelector('.stone').addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();openLB();} });
+
+    // ---- dream: describe your home → Gemini 360 panorama ----
+    const DREAM_LINES = ["Reading your words…","Raising the walls…","Pouring the light…",
+                         "Placing the stone…","Stitching the horizon…","Almost there…"];
+    let dreaming=false;
+    async function startDream(e){
+      if(e) e.stopPropagation();
+      if(dreaming) return;
+      const desc=document.getElementById('dreamDesc').value.trim(),
+            msg=document.getElementById('dreamMsg'), go=document.getElementById('dreamGo');
+      if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
+      dreaming=true; go.disabled=true; msg.className='dream-msg';
+      let li=0; msg.textContent=DREAM_LINES[0];
+      const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 4000);
+      try{
+        const r=await fetch('/api/dream',{ method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ stone:'flint', description:desc }) });
+        if(!r.ok){
+          let m='The dream engine is unavailable right now.';
+          try{ m=(await r.json()).error || m; }catch(_){}
+          throw new Error(m);
+        }
+        const blob=await r.blob();
+        clearInterval(ticker); msg.textContent='';
+        await openPano(URL.createObjectURL(blob));
+      }catch(err){
+        clearInterval(ticker);
+        msg.textContent=err.message||'Something went wrong — try again.';
+        msg.className='dream-msg err';
+      }finally{ dreaming=false; go.disabled=false; }
+    }
+
+    // ---- 360 viewer (Three.js, lazy-loaded) ----
+    const pano=document.getElementById('pano');
+    let three=null, panoState=null;
+    function loadThree(){
+      if(window.THREE) return Promise.resolve();
+      if(three) return three;
+      three=new Promise((ok,fail)=>{
+        const s=document.createElement('script');
+        s.src='https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
+        s.onload=ok; s.onerror=()=>fail(new Error('Could not load the 360 viewer.'));
+        document.head.appendChild(s);
+      });
+      return three;
+    }
+    async function openPano(url){
+      await loadThree();
+      const tex=await new Promise((ok,fail)=>{
+        new THREE.TextureLoader().load(url, ok, undefined, ()=>fail(new Error('Could not read the panorama.')));
+      });
+      tex.colorSpace=THREE.SRGBColorSpace;
+      const img=tex.image, coverage=Math.min(1, (2*img.height)/img.width); // 2:1 = full sphere
+      const renderer=new THREE.WebGLRenderer({antialias:true});
+      renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+      renderer.setSize(innerWidth,innerHeight);
+      pano.insertBefore(renderer.domElement, pano.firstChild);
+      const scene=new THREE.Scene(); scene.background=new THREE.Color(0x06080b);
+      const cam=new THREE.PerspectiveCamera(75, innerWidth/innerHeight, .1, 100);
+      const geo=new THREE.SphereGeometry(50, 64, 48,
+        0, Math.PI*2, Math.PI*(1-coverage)/2, Math.PI*coverage);
+      geo.scale(-1,1,1); // view from inside
+      scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:tex})));
+      const maxLat=Math.max(15, coverage*85);
+      let lon=0, lat=0, vlon=0, vlat=0, drag=null, raf=0;
+      function frame(){
+        raf=requestAnimationFrame(frame);
+        if(!drag){ lon+=vlon; lat+=vlat; vlon*=.93; vlat*=.93; }
+        lat=Math.max(-maxLat,Math.min(maxLat,lat));
+        const phi=THREE.MathUtils.degToRad(90-lat), theta=THREE.MathUtils.degToRad(lon);
+        cam.lookAt(Math.sin(phi)*Math.cos(theta), Math.cos(phi), Math.sin(phi)*Math.sin(theta));
+        renderer.render(scene,cam);
+      }
+      const el=renderer.domElement;
+      const down=(x,y)=>{ drag={x,y,lon,lat}; vlon=vlat=0; };
+      const move=(x,y)=>{ if(!drag) return;
+        const nl=drag.lon+(drag.x-x)*.18, nt=drag.lat+(y-drag.y)*.18;
+        vlon=nl-lon; vlat=nt-lat; lon=nl; lat=nt; };
+      el.addEventListener('pointerdown',e=>{ el.setPointerCapture(e.pointerId); down(e.clientX,e.clientY); });
+      el.addEventListener('pointermove',e=>move(e.clientX,e.clientY));
+      el.addEventListener('pointerup',()=>{ drag=null; });
+      el.addEventListener('wheel',e=>{ e.preventDefault();
+        cam.fov=Math.max(40,Math.min(95,cam.fov+e.deltaY*.04)); cam.updateProjectionMatrix(); },{passive:false});
+      const onResize=()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
+        renderer.setSize(innerWidth,innerHeight); };
+      addEventListener('resize',onResize);
+      panoState={ destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
+        renderer.dispose(); tex.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
+      pano.classList.add('open'); frame();
+    }
+    function closePano(){
+      pano.classList.remove('open');
+      if(panoState){ panoState.destroy(); panoState=null; }
+    }
+    // capture phase + stopPropagation so one Escape closes only the pano,
+    // not the lightbox underneath it
+    document.addEventListener('keydown', e=>{
+      if(e.key==='Escape' && pano.classList.contains('open')){ e.stopPropagation(); closePano(); }
+    }, true);
   </script>
 </body>
 </html>
