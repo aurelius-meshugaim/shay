@@ -1,5 +1,13 @@
 {
   "functions": {
-    "api/dream.js": { "maxDuration": 60 }
-  }
+    "api/dream.js": { "maxDuration": 60 },
+    "api/admin.js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "admin.shaym.beauty" }],
+      "destination": "/admin.html"
+    }
+  ]
 }

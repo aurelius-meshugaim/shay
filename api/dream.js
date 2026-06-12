@@ -241,8 +241,18 @@ module.exports = async (req, res) => {
 
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host = `${proto}://${req.headers.host}`;
+
+  // DB is the source of truth for identity, dimensions and (for admin-uploaded
+  // stones) the original image's storage URL; manifest is the legacy fallback.
+  let row = null;
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
+    row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/stones?id=eq.${stone}&select=name,width_cm,height_cm,depth_cm,images`, { headers: h })
+      .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+  }
+  const originalUrl = row?.images?.original || `${host}/stones/${stone}/original.jpg`;
   const [stoneRes, tplRes, manifestRes] = await Promise.all([
-    fetch(`${host}/stones/${stone}/original.jpg`),
+    fetch(originalUrl),
     fetch(`${host}/${TEMPLATE}`),
     fetch(`${host}/stones/manifest.json`),
   ]);
@@ -256,13 +266,7 @@ module.exports = async (req, res) => {
   };
   const manifest = manifestRes.ok ? await manifestRes.json() : [];
   let meta = manifest.find((s) => s.id === stone);
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
-    // DB is the source of truth for identity + dimensions; manifest is fallback
-    const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
-    const row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/stones?id=eq.${stone}&select=name,width_cm,height_cm,depth_cm`, { headers: h })
-      .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
-    if (row) meta = { name: row.name, dimensions: { width_cm: Number(row.width_cm), height_cm: Number(row.height_cm), depth_cm: Number(row.depth_cm) } };
-  }
+  if (row) meta = { name: row.name, dimensions: { width_cm: Number(row.width_cm), height_cm: Number(row.height_cm), depth_cm: Number(row.depth_cm) } };
   const args = { base, key: KEY, name: meta?.name || stone, ...dims(meta), desc };
 
   if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {

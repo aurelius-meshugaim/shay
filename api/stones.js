@@ -18,7 +18,7 @@ module.exports = async (req, res) => {
   if (URL && KEY) {
     const h = { apikey: KEY, Authorization: `Bearer ${KEY}` };
     [rows, tops] = await Promise.all([
-      fetch(`${URL}/rest/v1/stones?select=id,name,width_cm,height_cm,depth_cm,dimensions_approx,character,status`, { headers: h })
+      fetch(`${URL}/rest/v1/stones?select=id,name,width_cm,height_cm,depth_cm,dimensions_approx,character,status,images`, { headers: h })
         .then((r) => (r.ok ? r.json() : [])).catch(() => []),
       fetch(`${URL}/rest/v1/offers?select=stone_id,amount_usd&order=amount_usd.desc`, { headers: h })
         .then((r) => (r.ok ? r.json() : [])).catch(() => []),
@@ -44,6 +44,27 @@ module.exports = async (req, res) => {
       variants: m.variants,
     };
   });
+
+  // DB-native stones (uploaded via admin, images in Supabase Storage)
+  const inManifest = new Set(manifest.map((m) => m.id));
+  for (const r of rows) {
+    if (inManifest.has(r.id) || r.status !== "available" || !r.images?.original) continue;
+    const variants = {};
+    for (const k of ["blur", "outdoor", "indoor", "creative"]) {
+      if (r.images[k]) variants[k] = { src: r.images[k].src, caption: r.images[k].caption || "" };
+    }
+    if (Object.keys(variants).length < 4) continue; // incomplete processing
+    stones.push({
+      id: r.id,
+      name: r.name,
+      character: r.character || "",
+      status: r.status,
+      dimensions: { width_cm: Number(r.width_cm), height_cm: Number(r.height_cm), depth_cm: Number(r.depth_cm), approx: r.dimensions_approx },
+      top_offer_usd: topOffer[r.id] ?? null,
+      original: r.images.original,
+      variants,
+    });
+  }
 
   res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=120");
   return res.json({ stones });

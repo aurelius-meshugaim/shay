@@ -1,0 +1,225 @@
+// POST /api/admin — gallery administration (admin.shaym.beauty).
+// Auth: x-admin-pass header checked against env ADMIN_PASSWORD.
+//
+// The 4-variant pipeline (analysis → brainstorm → design → 4 generations)
+// exceeds one function's 60s budget, so the admin page drives it in stages:
+//   create   {name?, width_cm, height_cm, depth_cm, photos:[b64 ≤3]} → {id}
+//   analyze  {id}                → analysis/brainstorm/design saved to meta
+//   variant  {id, kind}          → one generated variant uploaded to storage
+//   finalize {id}                → status 'available' → appears in gallery
+// New stones live entirely in Supabase (rows + storage bucket "stones");
+// the static manifest keeps serving the two legacy stones.
+
+const TEXT_MODEL = "gemini-2.5-flash";
+const IMAGE_MODEL = "gemini-3.1-flash-image";
+const API = "https://generativelanguage.googleapis.com/v1beta/models";
+const VARIANTS = ["blur", "outdoor", "indoor", "creative"];
+
+const sb = () => ({
+  url: process.env.SUPABASE_URL,
+  headers: {
+    apikey: process.env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+  },
+});
+
+async function row(id) {
+  const { url, headers } = sb();
+  const r = await fetch(`${url}/rest/v1/stones?id=eq.${encodeURIComponent(id)}&select=*`, { headers });
+  return r.ok ? (await r.json())[0] : null;
+}
+
+async function patch(id, fields) {
+  const { url, headers } = sb();
+  const r = await fetch(`${url}/rest/v1/stones?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(fields),
+  });
+  if (!r.ok) throw new Error(`db patch: ${r.status} ${(await r.text()).slice(0, 200)}`);
+}
+
+async function upload(path, buf) {
+  const { url, headers } = sb();
+  const r = await fetch(`${url}/storage/v1/object/stones/${path}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "image/jpeg", "x-upsert": "true" },
+    body: buf,
+  });
+  if (!r.ok) throw new Error(`storage upload: ${r.status} ${(await r.text()).slice(0, 200)}`);
+  return `${url}/storage/v1/object/public/stones/${path}`;
+}
+
+async function gemini(model, parts, { imageOut = false } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    const r = await fetch(`${API}/${model}:generateContent?key=${process.env.GEMINI_AI_STUDIO}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        ...(imageOut ? { generationConfig: { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } } } : {}),
+      }),
+    });
+    if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
+      await new Promise((ok) => setTimeout(ok, attempt * 3000));
+      continue;
+    }
+    if (!r.ok) throw new Error(`${model}: HTTP ${r.status}`);
+    const data = await r.json();
+    const out = data.candidates?.[0]?.content?.parts ?? [];
+    if (imageOut) {
+      const img = out.find((p) => p.inlineData);
+      if (img) return Buffer.from(img.inlineData.data, "base64");
+      if (attempt <= 2) continue;
+      throw new Error(`${model}: no image`);
+    }
+    const text = out.filter((p) => p.text).map((p) => p.text).join("");
+    if (text) return text;
+    if (attempt <= 2) continue;
+    throw new Error(`${model}: no text`);
+  }
+}
+
+function parseJson(text, stage) {
+  const m = text.match(/```json\s*([\s\S]*?)```/) ?? text.match(/```\s*([\s\S]*?)```/);
+  try { return JSON.parse(m ? m[1] : text); }
+  catch { throw new Error(`${stage}: bad JSON from model`); }
+}
+
+const imagePart = (buf) => ({ inlineData: { mimeType: "image/jpeg", data: buf.toString("base64") } });
+
+async function fetchOriginal(stoneRow) {
+  const url = stoneRow.images?.original;
+  if (!url) throw new Error("stone has no original image");
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("could not fetch original");
+  return Buffer.from(await r.arrayBuffer());
+}
+
+// ---- pipeline stages (ported from pipeline/run.mjs) -------------------------
+
+async function stageAnalyze(stoneRow) {
+  const buf = await fetchOriginal(stoneRow);
+  const analysisPrompt = `Analyze the stone in this photo. Return ONLY JSON:
+{
+  "name": "a poetic two-word display name for this stone",
+  "colors": ["..."],
+  "texture": "...",
+  "character": "the stone's personality/mood in one sentence",
+  "distinctive_features": ["..."]
+}`;
+  const analysis = parseJson(await gemini(TEXT_MODEL, [imagePart(buf), { text: analysisPrompt }]), "analysis");
+
+  const brainstorm = parseJson(await gemini(TEXT_MODEL, [{ text: `Here is an analysis of a stone:
+${JSON.stringify(analysis, null, 2)}
+
+Brainstorm scene ideas for re-photographing this exact stone in new settings. For each category below, propose 4 distinct, vivid ideas (one line each) that flatter THIS stone's specific colors, texture and character:
+
+- "blur": the stone tack-sharp against a sophisticated, softly blurred background — think fine-art product photography, elegant bokeh, complementary color palette.
+- "outdoor": a natural outdoor setting.
+- "indoor": an interior setting.
+- "creative": an unexpected, artistic, imaginative setting — surreal allowed.
+
+Return ONLY JSON: { "blur": ["..",..], "outdoor": [...], "indoor": [...], "creative": [...] }` }]), "brainstorm");
+
+  const design = parseJson(await gemini(TEXT_MODEL, [{ text: `Stone analysis:
+${JSON.stringify(analysis, null, 2)}
+
+Brainstormed scene ideas per category:
+${JSON.stringify(brainstorm, null, 2)}
+
+For each category (blur, outdoor, indoor, creative): pick the single strongest idea for THIS stone and expand it into a polished image-generation prompt. Each prompt must:
+1. Begin with: "Take the exact stone from the provided photo — preserve its shape, texture, colors and every distinctive feature faithfully —"
+2. Then describe placement, setting, lighting, camera/lens feel, and mood in rich detail.
+3. For "blur": the background must be sophisticatedly blurred (shallow depth of field, refined bokeh), stone in crisp focus.
+4. Composition: the stone is the centered subject — dead center of the frame, hero of the shot.
+
+Also write a short poetic caption (under 12 words) per category.
+
+Return ONLY JSON:
+{ "blur": {"prompt": "...", "caption": "..."}, "outdoor": {...}, "indoor": {...}, "creative": {...} }` }]), "design");
+
+  const fields = { meta: { analysis, design } };
+  if (!stoneRow.name || stoneRow.name === stoneRow.id) fields.name = analysis.name;
+  if (!stoneRow.character) fields.character = analysis.character;
+  await patch(stoneRow.id, fields);
+  return { name: fields.name || stoneRow.name, character: analysis.character };
+}
+
+const COMPOSITION_RULE =
+  " Composition requirement: the stone is perfectly centered in the frame, both horizontally and vertically — it is the clear central subject of the image.";
+
+async function stageVariant(stoneRow, kind) {
+  if (!VARIANTS.includes(kind)) throw new Error("unknown variant");
+  const design = stoneRow.meta?.design?.[kind];
+  if (!design) throw new Error("run analyze first");
+  const buf = await fetchOriginal(stoneRow);
+  const img = await gemini(IMAGE_MODEL, [imagePart(buf), { text: design.prompt + COMPOSITION_RULE }], { imageOut: true });
+  const url = await upload(`${stoneRow.id}/${kind}.jpg`, img);
+  const images = { ...(stoneRow.images || {}), [kind]: { src: url, caption: design.caption } };
+  await patch(stoneRow.id, { images });
+  return { kind, url };
+}
+
+// ---- handler ----------------------------------------------------------------
+
+module.exports = async (req, res) => {
+  if (req.method !== "POST") { res.statusCode = 405; return res.json({ error: "POST only" }); }
+  if (!process.env.ADMIN_PASSWORD || req.headers["x-admin-pass"] !== process.env.ADMIN_PASSWORD) {
+    res.statusCode = 401;
+    return res.json({ error: "Wrong password." });
+  }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+    res.statusCode = 500;
+    return res.json({ error: "Storage is not configured." });
+  }
+
+  const { action } = req.body || {};
+  try {
+    if (action === "ping") return res.json({ ok: true });
+    if (action === "create") {
+      const { name = "", width_cm, height_cm, depth_cm, photos = [] } = req.body;
+      const dims = [width_cm, height_cm, depth_cm].map(Number);
+      if (dims.some((d) => !(d > 0 && d < 10000))) { res.statusCode = 400; return res.json({ error: "Dimensions (cm) are required." }); }
+      if (!Array.isArray(photos) || photos.length < 1 || photos.length > 3) { res.statusCode = 400; return res.json({ error: "1 to 3 photos." }); }
+      const base = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const id = (base || "stone") + "-" + Math.random().toString(36).slice(2, 6);
+      const images = {};
+      for (let i = 0; i < photos.length; i++) {
+        const buf = Buffer.from(String(photos[i]), "base64");
+        if (buf.length < 1000 || buf.length > 8_000_000) { res.statusCode = 400; return res.json({ error: `Photo ${i + 1} is empty or too large.` }); }
+        const url = await upload(`${id}/${i === 0 ? "original" : `original-${i + 1}`}.jpg`, buf);
+        images[i === 0 ? "original" : `original_${i + 1}`] = url;
+      }
+      const { url, headers } = sb();
+      const r = await fetch(`${url}/rest/v1/stones`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({
+          id, name: String(name).trim() || id, width_cm: dims[0], height_cm: dims[1], depth_cm: dims[2],
+          dimensions_approx: false, status: "processing", images,
+        }),
+      });
+      if (!r.ok) throw new Error(`db insert: ${r.status} ${(await r.text()).slice(0, 200)}`);
+      return res.json({ id });
+    }
+
+    const stone = await row(String(req.body.id || ""));
+    if (!stone) { res.statusCode = 404; return res.json({ error: "Unknown stone." }); }
+
+    if (action === "analyze") return res.json(await stageAnalyze(stone));
+    if (action === "variant") return res.json(await stageVariant(stone, String(req.body.kind)));
+    if (action === "finalize") {
+      const missing = VARIANTS.filter((v) => !stone.images?.[v]);
+      if (missing.length) { res.statusCode = 400; return res.json({ error: `Missing variants: ${missing.join(", ")}` }); }
+      await patch(stone.id, { status: "available" });
+      return res.json({ ok: true, id: stone.id });
+    }
+    res.statusCode = 400;
+    return res.json({ error: "Unknown action." });
+  } catch (e) {
+    console.error("admin failed:", action, e.message);
+    res.statusCode = 502;
+    return res.json({ error: e.message });
+  }
+};
