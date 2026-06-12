@@ -244,6 +244,28 @@ module.exports = async (req, res) => {
       const missing = VARIANTS.filter((v) => !stone.images?.[v]);
       if (missing.length) { res.statusCode = 400; return res.json({ error: `Missing variants: ${missing.join(", ")}` }); }
       await patch(stone.id, { status: "available" });
+      if (process.env.RESEND_API_KEY && process.env.OFFER_NOTIFY) {
+        const { stoneEmail, send } = require("./_email.js");
+        const dims = [["width_cm", "wide"], ["height_cm", "tall"], ["depth_cm", "deep"]]
+          .filter(([k]) => stone[k] > 0).map(([k, w]) => `${stone[k]} cm ${w}`).join(" · ");
+        await send({
+          resendKey: process.env.RESEND_API_KEY,
+          to: process.env.OFFER_NOTIFY,
+          subject: `${stone.name} is ready — live in the gallery`,
+          html: stoneEmail({
+            preheader: `${stone.name} finished processing and is live on shaym.beauty.`,
+            heading: `${stone.name} is ready`,
+            intro: stone.character || "Processed, framed, and hanging in the gallery.",
+            image: stone.images?.blur?.src || stone.images?.original || null,
+            rows: [
+              { label: "Stone", value: stone.name },
+              ...(dims ? [{ label: "Size", value: dims }] : []),
+              { label: "Id", value: stone.id },
+            ],
+            cta: { label: "See it live", url: "https://shaym.beauty" },
+          }),
+        }).catch((e) => console.error("ready email:", e.message));
+      }
       return res.json({ ok: true, id: stone.id });
     }
     res.statusCode = 400;

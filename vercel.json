@@ -3,6 +3,9 @@
     "api/dream.js": { "maxDuration": 60 },
     "api/admin.js": { "maxDuration": 60 }
   },
+  "crons": [
+    { "path": "/api/stones", "schedule": "0 6 * * *" }
+  ],
   "redirects": [
     {
       "source": "/",
