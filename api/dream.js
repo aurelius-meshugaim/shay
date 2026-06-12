@@ -1,16 +1,149 @@
-// POST /api/dream  { stone: "flint", description: "..." }
-// → image/jpeg: a 360° equirectangular panorama of the visitor's described
-//   home with the actual stone (its original photo) staged inside it.
+// POST /api/dream  { stone, description, email? }
+// GET  /api/dream  → { emailDelivery: bool }   (capability probe for the UI)
 //
-// Backbone: gemini-3.1-flash-image (same model as pipeline/run.mjs), image+text
-// conditioning — the stone photo rides along so the real stone appears, which
-// is why this is Gemini and not a text-only skybox service.
-// Key: GEMINI_AI_STUDIO in the Vercel project env (mirrors Doppler oria/dev).
+// Three-call all-Gemini pipeline (probed 2026-06-12, see OCW
+// space/rnd/2026-06-12-shay-dream-360/probe/PROBE.md):
+//   1. RESTYLE a true-equirect template (stones/templates/spacious-1.jpg)
+//      into the visitor's described room AND insert the real stone at its
+//      manifest dimensions. True projection is inherited from the template;
+//      the heavy restyle breaks the wrap seam.
+//   2. ROLL 50% (sharp) so the broken seam sits mid-frame, then a light
+//      Gemini repair pass heals it (light edits are wrap-safe, 4/4 probes).
+//   3. ROLL back so the stone faces the viewer's initial yaw.
+// ~35s total — inside the 60s budget.
+//
+// Without email: respond with the JPEG. With email: respond 202 immediately,
+// finish the pipeline via waitUntil, deliver through Resend (needs
+// RESEND_API_KEY in the project env; until it exists GET reports
+// emailDelivery:false and the UI hides the offer).
 
-const IMAGE_MODEL = "gemini-3.1-flash-image";
+const sharp = require("sharp");
+const { waitUntil } = require("@vercel/functions");
+
+const MODEL = "gemini-3.1-flash-image";
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
+const TEMPLATE = "stones/templates/spacious-1.jpg";
+
+// Best-effort per-instance rate limit (no shared store yet — see README).
+const hits = new Map(); // ip → [timestamps]
+const RL_MAX = 6, RL_WIN = 60 * 60 * 1000;
+function limited(ip) {
+  const now = Date.now(), arr = (hits.get(ip) || []).filter((t) => now - t < RL_WIN);
+  arr.push(now);
+  hits.set(ip, arr);
+  return arr.length > RL_MAX;
+}
+
+async function gemini(key, parts, label) {
+  for (let attempt = 1; ; attempt++) {
+    const r = await fetch(`${API}/${MODEL}:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } },
+      }),
+    });
+    if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
+      await new Promise((ok) => setTimeout(ok, attempt * 3000));
+      continue;
+    }
+    if (!r.ok) throw new Error(`${label}: HTTP ${r.status}`);
+    const data = await r.json();
+    const img = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+    if (!img) {
+      if (attempt <= 2) continue; // e.g. IMAGE_RECITATION — retry
+      throw new Error(`${label}: no image returned`);
+    }
+    return Buffer.from(img.inlineData.data, "base64");
+  }
+}
+
+async function roll50(buf) {
+  const img = sharp(buf);
+  const { width: w, height: h } = await img.metadata();
+  const half = Math.floor(w / 2);
+  const left = await sharp(buf).extract({ left: 0, top: 0, width: half, height: h }).toBuffer();
+  const right = await sharp(buf).extract({ left: half, top: 0, width: w - half, height: h }).toBuffer();
+  return sharp({ create: { width: w, height: h, channels: 3, background: "#000" } })
+    .composite([{ input: right, left: 0, top: 0 }, { input: left, left: w - half, top: 0 }])
+    .jpeg({ quality: 92 })
+    .toBuffer();
+}
+
+function dims(stoneMeta) {
+  const d = stoneMeta?.dimensions;
+  if (!d) return { sizeText: "about 14 cm wide (hand-sized)", scaleWord: "a hand-sized collectible mineral", placement: "on an elegant display pedestal or small table" };
+  const sizeText = `${d.width_cm} cm wide, ${d.height_cm} cm tall, ${d.depth_cm} cm deep`;
+  const big = d.width_cm >= 40;
+  return {
+    sizeText,
+    scaleWord: big ? "a substantial sculptural stone" : "a hand-sized collectible mineral",
+    placement: big
+      ? "standing directly on the floor as a sculptural centerpiece"
+      : "on an elegant display pedestal or small table",
+  };
+}
+
+async function generate({ base, key, name, sizeText, scaleWord, placement, desc }) {
+  const restylePrompt = `The first image is a 360-degree equirectangular panorama of an interior, captured from the center of the room at eye level. The second image is a photograph of a stone ("${name}") whose real size is ${sizeText}.
+
+Completely redesign the interior into the visitor's own home, as they describe it: ${desc}
+
+NON-NEGOTIABLE RULES, regardless of the description:
+1. The room is SPACIOUS — high ceilings, walls at a generous distance from the camera; the visitor stands in the middle of an open, airy space. If the description implies a small space, render its spirit in a generous version of it.
+2. The stone stands at the CENTER OF THE ROOM: ${placement}, one or two steps in front of the camera, at the horizontal center of the image. It is the focal point the whole room is arranged around.
+3. The stone's size is EXACTLY its real size — ${sizeText}, ${scaleWord}, NOT larger and NOT smaller. A stone rendered at a different size than ${sizeText} is wrong.
+
+Use the exact stone from the second photograph: preserve its true colors, banding, texture and silhouette, and light it consistently with the room.
+
+CRITICAL: keep the equirectangular projection of the first image exactly — same camera position, full 360x180 sphere, floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text, no watermarks.`;
+
+  const styled = await gemini(key, [
+    { text: restylePrompt },
+    { inlineData: { mimeType: "image/jpeg", data: base.template.toString("base64") } },
+    { inlineData: { mimeType: "image/jpeg", data: base.stone.toString("base64") } },
+  ], "restyle");
+
+  const rolled = await roll50(styled);
+
+  const repairPrompt = `This is a 360-degree equirectangular panorama of a room. There may be a visible vertical seam artifact running down the middle of the image where two parts of the room meet with a hard discontinuity.
+
+Repair ONLY that vertical seam zone: blend the architecture and surfaces across it so the room reads as one continuous space. Keep everything else pixel-faithful — same furniture, same displayed stone, same windows, same lighting, same equirectangular projection. The left and right edges of the image are already continuous; keep them exactly continuous.`;
+
+  const repaired = await gemini(key, [
+    { text: repairPrompt },
+    { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
+  ], "seam-repair");
+
+  const back = await roll50(repaired); // roll back → stone faces initial view
+  // models drift on aspect; normalize to exact 2:1 so the viewer maps a full sphere
+  const { width: w, height: h } = await sharp(back).metadata();
+  if (w !== 2 * h) return sharp(back).resize(2 * h, h, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
+  return back;
+}
+
+async function sendEmail({ resendKey, to, name, jpeg }) {
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: "Stones <stones@shaym.beauty>",
+      to: [to],
+      subject: `${name} — in your home, in 360°`,
+      html: `<p>Your dream is ready: <strong>${name}</strong>, at home with you.</p>
+<p>The attached image is a full 360° panorama — open it at
+<a href="https://shaym.beauty">shaym.beauty</a> or in any 360 viewer.</p>`,
+      attachments: [{ filename: "your-home-360.jpg", content: jpeg.toString("base64") }],
+    }),
+  });
+  if (!r.ok) throw new Error(`resend: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+}
 
 module.exports = async (req, res) => {
+  if (req.method === "GET") {
+    return res.json({ emailDelivery: !!process.env.RESEND_API_KEY });
+  }
   if (req.method !== "POST") {
     res.statusCode = 405;
     return res.json({ error: "POST only" });
@@ -21,7 +154,13 @@ module.exports = async (req, res) => {
     return res.json({ error: "GEMINI_AI_STUDIO is not configured" });
   }
 
-  const { stone = "flint", description = "" } = req.body || {};
+  const ip = (req.headers["x-forwarded-for"] || "?").split(",")[0].trim();
+  if (limited(ip)) {
+    res.statusCode = 429;
+    return res.json({ error: "The dream engine needs a breather — try again in a little while." });
+  }
+
+  const { stone = "flint", description = "", email = "" } = req.body || {};
   const desc = String(description).trim();
   if (desc.length < 3 || desc.length > 600) {
     res.statusCode = 400;
@@ -31,60 +170,69 @@ module.exports = async (req, res) => {
     res.statusCode = 400;
     return res.json({ error: "Unknown stone." });
   }
+  const to = String(email).trim();
+  if (to && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+    res.statusCode = 400;
+    return res.json({ error: "That email doesn't look right." });
+  }
+  if (to && !process.env.RESEND_API_KEY) {
+    res.statusCode = 503;
+    return res.json({ error: "Email delivery isn't set up yet." });
+  }
 
-  // The stone's original photo lives in this same deployment as a static asset.
   const proto = req.headers["x-forwarded-proto"] || "https";
-  const stoneUrl = `${proto}://${req.headers.host}/stones/${stone}/original.jpg`;
-  const stoneRes = await fetch(stoneUrl);
-  if (!stoneRes.ok) {
+  const host = `${proto}://${req.headers.host}`;
+  const [stoneRes, tplRes, manifestRes] = await Promise.all([
+    fetch(`${host}/stones/${stone}/original.jpg`),
+    fetch(`${host}/${TEMPLATE}`),
+    fetch(`${host}/stones/manifest.json`),
+  ]);
+  if (!stoneRes.ok || !tplRes.ok) {
     res.statusCode = 400;
     return res.json({ error: "Unknown stone." });
   }
-  const stoneB64 = Buffer.from(await stoneRes.arrayBuffer()).toString("base64");
-
-  const prompt = `Create a single seamless 360-degree equirectangular panorama (full horizontal wrap: the left and right edges must continue into each other).
-
-The scene — the visitor's own home, as they describe it: ${desc}
-
-Critically: the exact stone from the attached photograph must appear in the scene as a treasured displayed object — on a pedestal, mantel, shelf or table at a natural focal point. Preserve the stone's true colors, banding, texture and shape from the photo. Render it at a believable physical size for a collectible mineral specimen.
-
-Style: photorealistic, warm inviting light, the home feels lived-in and personal. No people, no text, no watermarks. Equirectangular projection only — straight vertical lines may curve horizontally as the projection requires.`;
-
-  const body = {
-    contents: [{ parts: [
-      { text: prompt },
-      { inlineData: { mimeType: "image/jpeg", data: stoneB64 } },
-    ]}],
-    generationConfig: {
-      responseModalities: ["IMAGE"],
-      imageConfig: { aspectRatio: "21:9", imageSize: "2K" },
-    },
+  const base = {
+    stone: Buffer.from(await stoneRes.arrayBuffer()),
+    template: Buffer.from(await tplRes.arrayBuffer()),
   };
+  const manifest = manifestRes.ok ? await manifestRes.json() : [];
+  const meta = manifest.find((s) => s.id === stone);
+  const args = { base, key: KEY, name: meta?.name || stone, ...dims(meta), desc };
 
-  for (let attempt = 1; ; attempt++) {
-    const r = await fetch(`${API}/${IMAGE_MODEL}:generateContent?key=${KEY}`, {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    // fire-and-forget dream log
+    fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
-      await new Promise((ok) => setTimeout(ok, attempt * 4000));
-      continue;
-    }
-    if (!r.ok) {
-      res.statusCode = 502;
-      return res.json({ error: `Generation failed (HTTP ${r.status}). Try again in a moment.` });
-    }
-    const data = await r.json();
-    const img = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
-    if (!img) {
-      res.statusCode = 502;
-      return res.json({ error: "The model returned no image. Try rephrasing your description." });
-    }
-    const buf = Buffer.from(img.inlineData.data, "base64");
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ stone_id: stone, description: desc, email: to || null, ip }),
+    }).catch(() => {});
+  }
+
+  if (to) {
+    // Respond now; finish + deliver in the background (within maxDuration).
+    res.statusCode = 202;
+    res.json({ queued: true });
+    waitUntil(
+      generate(args)
+        .then((jpeg) => sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: args.name, jpeg }))
+        .catch((e) => console.error("dream-email failed:", e.message)),
+    );
+    return;
+  }
+
+  try {
+    const jpeg = await generate(args);
     res.statusCode = 200;
-    res.setHeader("Content-Type", img.inlineData.mimeType || "image/jpeg");
+    res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
-    return res.end(buf);
+    return res.end(jpeg);
+  } catch (e) {
+    console.error("dream failed:", e.message);
+    res.statusCode = 502;
+    return res.json({ error: "The dream engine stumbled. Try again in a moment." });
   }
 };

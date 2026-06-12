@@ -2,6 +2,12 @@
   {
     "id": "flint",
     "name": "Banded Flint",
+    "dimensions": {
+      "width_cm": 14,
+      "height_cm": 9,
+      "depth_cm": 7,
+      "approx": true
+    },
     "character": "A testament to geological time and powerful forces, this stone exudes a quiet strength and reveals an elegant, hidden complexity.",
     "original": "stones/flint/original.jpg",
     "variants": {
@@ -20,6 +26,36 @@
       "creative": {
         "src": "stones/flint/creative.jpg",
         "caption": "A star-shard, eons in its core."
+      }
+    }
+  },
+  {
+    "id": "boulder",
+    "name": "Striped Sentinel",
+    "dimensions": {
+      "width_cm": 85,
+      "height_cm": 62,
+      "depth_cm": 55,
+      "approx": true
+    },
+    "character": "The stone projects a venerable and resilient mood, quietly asserting its ancient presence and the enduring power of nature.",
+    "original": "stones/boulder/original.jpg",
+    "variants": {
+      "blur": {
+        "src": "stones/boulder/blur.jpg",
+        "caption": "Ancient heart, dream-kissed fields."
+      },
+      "outdoor": {
+        "src": "stones/boulder/outdoor.jpg",
+        "caption": "Cliff guardian, wild heart."
+      },
+      "indoor": {
+        "src": "stones/boulder/indoor.jpg",
+        "caption": "Zen anchor, ancient peace."
+      },
+      "creative": {
+        "src": "stones/boulder/creative.jpg",
+        "caption": "Cosmic wanderer, stardust soul."
       }
     }
   }

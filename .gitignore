@@ -1,3 +1,5 @@
-.vercel
+node_modules/
+.playwright-cli/
+.vercel/
+.vercel.aurelius.bak/
 archive/
-.vercel*

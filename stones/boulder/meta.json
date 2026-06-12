@@ -1,0 +1,81 @@
+{
+  "slug": "boulder",
+  "sourceFile": "boulder.jpg",
+  "original": "original.jpg",
+  "analysis": {
+    "name": "Striped Sentinel",
+    "description": "A substantial, irregularly rounded boulder dominates the scene, characterized by striking, wavy bands of reddish-pink and dark grey. Its rugged, pockmarked surface is further adorned with patches of lichen, while a small gardening trowel rests against its side, offering a human-scale context.",
+    "shape": "Irregularly rounded, boulder-like, with a somewhat flattened top and overall lumpy contours.",
+    "colors": "Dominantly reddish-pink (salmon/terracotta), dark grey (charcoal/slate), with lighter grey areas and vibrant orange and subtle green lichen patches.",
+    "texture": "Very rough, highly textured, granular, deeply pitted, and lumpy due to weathering and crystalline structure; some areas are smoother where covered by lichen.",
+    "character": "The stone projects a venerable and resilient mood, quietly asserting its ancient presence and the enduring power of nature.",
+    "distinctive_features": [
+      "Prominent, wavy, alternating bands of reddish-pink and dark grey minerals (gneissic banding)",
+      "Extremely rough, irregular, and deeply pitted surface texture",
+      "Presence of various lichens (orange, grey, subtle green)",
+      "Large, robust boulder size, suggesting significant age and origin."
+    ]
+  },
+  "brainstorm": {
+    "blur": [
+      "The boulder stands tack-sharp on a minimalist slate slab, its gneissic bands vibrant, while the background blurs into a sophisticated wash of diffused terracotta and deep charcoal.",
+      "A dramatic close-up of the stone reveals every pit and lichen patch in crisp focus, set against an out-of-focus cascade of warm, golden light reflecting off a silken drape.",
+      "The 'Striped Sentinel' is perfectly focused against a soft, ethereal blur of sun-drenched, swaying flaxen grasses and distant, hazy lavender fields.",
+      "Isolated and sharp, the stone's rough grandeur is emphasized by a subtly gradient background shifting from cool mist grey to a muted, deep forest green."
+    ],
+    "outdoor": [
+      "Perched majestically on a windswept coastal cliff, its ancient form enduring the spray of crashing waves and framed by a dramatic, tempestuous sky.",
+      "Nestled deep within an old-growth forest, surrounded by a vibrant carpet of moss and ferns, with dappled sunlight highlighting its lichen-covered surfaces.",
+      "Anchored firmly at the edge of a crystal-clear mountain stream, with the gentle flow of water polishing its lower half and showcasing its rugged upper texture.",
+      "Dominating a high alpine meadow dotted with resilient wildflowers, bathed in the warm glow of a setting sun that accentuates its reddish-pink hues."
+    ],
+    "indoor": [
+      "Displayed as a monumental sculpture in a minimalist gallery space, bathed in a focused spotlight that dramatically accentuates its deep pits and wavy bands.",
+      "Integrated into a luxurious, rustic-modern living room, serving as a natural hearth stone or coffee table base, contrasting with soft textiles and warm wood tones.",
+      "A serene focal point in an indoor Japanese Zen garden, its rough texture providing an anchor amidst carefully raked sand and delicate green foliage.",
+      "Positioned in an industrial-chic loft, its ancient, weathered presence providing a stark, beautiful contrast against exposed concrete walls and polished metal accents."
+    ],
+    "creative": [
+      "Floating weightlessly in a cosmic void, its pockmarked surface resembling a miniature, ancient planet, orbited by ethereal dust clouds of reddish-pink and dark grey.",
+      "Emerging dramatically from a shimmering portal of light and shadow, as if it has just journeyed through time from a primordial landscape.",
+      "Transformed into a colossal, silent deity overseeing a miniature, bioluminescent forest of glowing fungi and tiny, cascading waterfalls.",
+      "Its rugged surface appears to slowly crystallize or de-crystallize, with faint, glowing energy lines tracing its mineral bands, suggesting a living geological process."
+    ]
+  },
+  "design": {
+    "blur": {
+      "prompt": "Take the exact stone from the provided photo — preserve its shape, texture, colors and every distinctive feature faithfully — centered, slightly grounded as if emerging from soft earth. Shot with a high-end prime lens (e.g., 85mm f/1.4) with an exquisite, creamy bokeh. The stone is in crisp focus, revealing every pit, gneissic band, and lichen patch. The background is a sophisticated blur of sun-drenched, swaying flaxen grasses and distant, hazy lavender fields, creating soft, ethereal washes of warm gold and muted purple. Warm, late afternoon golden sunlight directly hits the stone, accentuating its reddish-pink bands and casting subtle, elongated shadows in its deep pits. The light filtering through the blurred background creates ethereal glows, imbuing the scene with a serene, timeless, and majestic mood, emphasizing the stone's ancient beauty against a dreamlike natural backdrop. The stone is the hero, dead center, occupying roughly 60-70% of the vertical frame.",
+      "caption": "Ancient heart, dream-kissed fields."
+    },
+    "outdoor": {
+      "prompt": "Take the exact stone from the provided photo — preserve its shape, texture, colors and every distinctive feature faithfully — firmly anchored on the rugged edge of a windswept, craggy coastal cliff, overlooking a turbulent, dark ocean. A light mist or sea spray subtly catches the air around it. Shot with a wide-angle lens (e.g., 24mm f/8) with deep depth of field, capturing the vast, dramatic landscape while emphasizing the stone's imposing scale and intricate surface details. Dramatic, moody overcast lighting from a tempestuous sky, with occasional shafts of steely-grey light breaking through to highlight the stone's wet, reddish-pink and dark grey bands, making the lichen glow faintly. The overall scene is chiaroscuro, emphasizing rough textures. The mood is powerful, enduring, and wild, a testament to resilience against nature's raw forces. The stone is dead center, commanding the lower half of the frame, with the vast, dramatic sky and ocean stretching behind it.",
+      "caption": "Cliff guardian, wild heart."
+    },
+    "indoor": {
+      "prompt": "Take the exact stone from the provided photo — preserve its shape, texture, colors and every distinctive feature faithfully — sitting as the central, anchoring element in a meticulously designed indoor Japanese Zen garden. It is surrounded by perfectly raked white sand with intricate wave patterns, and sparse, delicate arrangements of miniature green moss patches and smooth river stones. A small, elegant bonsai tree is subtly placed nearby. Shot with a standard prime lens (e.g., 50mm f/2.8) at a slightly low angle, capturing the stone's grounded presence and the expansive serenity of the garden. A moderate depth of field ensures both the stone and its immediate surroundings are sharp, showcasing the interplay of textures. Soft, diffused natural light filters in from a large window or skylight, creating subtle, gentle shadows that emphasize the stone's deep pits and rough texture without harshness. The light illuminates the reddish-pink bands softly, making them appear warm and inviting. The mood is serene, meditative, balanced, with ancient wisdom meeting thoughtful design. The stone is dead center, commanding the foreground, with the carefully raked sand patterns extending gracefully around it and receding into the mid-ground.",
+      "caption": "Zen anchor, ancient peace."
+    },
+    "creative": {
+      "prompt": "Take the exact stone from the provided photo — preserve its shape, texture, colors and every distinctive feature faithfully — floating suspended in the vast, inky blackness of a cosmic void, appearing as a miniature, rugged planet. Swirls of luminous, ethereal nebulae and dust clouds, matching the stone's reddish-pink and dark grey hues, gently orbit and drift around it. Tiny, distant starlight twinkles faintly in the background. Shot with a wide-angle, slightly distorted lens to give a sense of cosmic scale, yet close enough to reveal the stone's intricate surface details. A very shallow depth of field blurs the distant stars, keeping focus on the stone and its immediate nebular environment. The stone is illuminated by a soft, ethereal glow from within the nebula, casting subtle highlights on its pockmarked surface and enhancing the wavy mineral bands. The overall lighting is otherworldly and diffused, emphasizing its form against the deep space. The mood is awe-inspiring, mysterious, ancient, evoking a sense of universal scale and the stone's timeless journey. The stone is dead center, majestically occupying the middle of the frame, surrounded by the swirling, glowing cosmic elements.",
+      "caption": "Cosmic wanderer, stardust soul."
+    }
+  },
+  "variants": {
+    "blur": {
+      "file": "blur.jpg",
+      "caption": "Ancient heart, dream-kissed fields."
+    },
+    "outdoor": {
+      "file": "outdoor.jpg",
+      "caption": "Cliff guardian, wild heart."
+    },
+    "indoor": {
+      "file": "indoor.jpg",
+      "caption": "Zen anchor, ancient peace."
+    },
+    "creative": {
+      "file": "creative.jpg",
+      "caption": "Cosmic wanderer, stardust soul."
+    }
+  }
+}
