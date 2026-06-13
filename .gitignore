@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 .playwright-cli/
 .vercel/
 .vercel.aurelius.bak/
