@@ -219,7 +219,7 @@ async function geminiText(key, parts, label) {
 async function detectSurface(jpeg, key, W, H, scene) {
   const what = scene.big
     ? (scene.standH ? "the empty top surface of the low display plinth" : "the clear open floor area meant for a sculpture")
-    : `the tall, slender display pedestal standing alone with NOTHING on it (about ${scene.standH} cm tall — not a bookshelf, console or desk that has objects on it)`;
+    : `the tall, slender display pedestal standing alone in the IMMEDIATE FOREGROUND — the piece of furniture NEAREST the camera, with NOTHING on its top (about ${scene.standH} cm tall). NOT a coffee table, side table, console, desk or shelf that has candles, books, bottles or any objects on it — only the completely empty pedestal closest to the camera`;
   // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
   // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
   // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
@@ -256,10 +256,45 @@ function stoneBox(W, H, dimensions, scene) {
   return { pxW, pxH, left: Math.round(W / 2 - pxW / 2), top: Math.round(cy - pxH / 2) };
 }
 
+// Relight the cutout to the room before pasting — deterministic Reinhard-style
+// channel matching against the surface region it lands on, plus a feathered
+// alpha edge. This is what makes the stone belong to the room's light without
+// ever letting a model touch its structure (size/shape stay pixel-exact).
+async function relightCutout(stonePng, panoJpeg, box, W, H) {
+  // room sample: the surface band under/around the stone
+  const rw = Math.round(Math.min(W, box.pxW * 2.4)), rh = Math.round(Math.min(H, Math.max(12, box.pxH * 1.4)));
+  const rl = Math.max(0, Math.min(W - rw, Math.round(box.left + box.pxW / 2 - rw / 2)));
+  const rt = Math.max(0, Math.min(H - rh, Math.round(box.top + box.pxH * 0.55)));
+  const region = await sharp(panoJpeg).extract({ left: rl, top: rt, width: rw, height: rh }).stats();
+  const meanR = region.channels.slice(0, 3).map((c) => c.mean);
+
+  const { data: px, info } = await sharp(stonePng).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let n = 0; const sum = [0, 0, 0];
+  for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 128) { sum[0] += px[i]; sum[1] += px[i + 1]; sum[2] += px[i + 2]; n++; }
+  if (!n) return stonePng;
+  const meanS = sum.map((v) => v / n);
+  const lum = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  const K = 0.7; // transfer strength
+  const lumTarget = 1 + K * (Math.min(1.3, Math.max(0.55, lum(meanR) / lum(meanS))) - 1);
+  const ratios = meanR.map((mr, c) => Math.min(1.6, Math.max(0.5, 1 + K * (mr / meanS[c] - 1))));
+  const scale = lumTarget / Math.max(0.01, lum(ratios));
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue;
+    for (let c = 0; c < 3; c++) px[i + c] = Math.max(0, Math.min(255, Math.round(px[i + c] * ratios[c] * scale)));
+  }
+  // feathered alpha: soften the cut edge so the boundary melts into the scene
+  const alpha = Buffer.alloc(info.width * info.height);
+  for (let i = 0, j = 0; i < px.length; i += 4, j++) alpha[j] = px[i + 3];
+  const soft = await sharp(alpha, { raw: { width: info.width, height: info.height, channels: 1 } }).blur(1.1).raw().toBuffer();
+  for (let i = 0, j = 0; i < px.length; i += 4, j++) px[i + 3] = Math.min(px[i + 3], soft[j]);
+  return sharp(px, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+}
+
 // Embed the stone INTO the room (R&D rnd/2026-06-13 probe recipe):
-// 1. paste the cutout at the geometrically exact size
-// 2. Gemini harmonizes ONLY a crop around it (contact shadow, light spill)
-// 3. the cutout is re-pasted on top — the model never owns the stone's pixels
+// 1. relight the cutout to the room's light (deterministic), feather its edge
+// 2. paste at the geometrically exact size
+// 3. Gemini harmonizes ONLY a crop around it (contact shadow, light spill)
+// 4. the relit cutout is re-pasted on top — the model never owns the stone's pixels
 async function embedStone(jpeg, cutout, dimensions, scene, key) {
   const { width: W, height: H } = await sharp(jpeg).metadata();
   let box = stoneBox(W, H, dimensions, scene);
@@ -288,12 +323,13 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
       dist = Math.min(hi, Math.max(lo, raw));
       let sy = s.y;
       if (raw < lo || raw > hi) {
-        // A low-side miss on a pedestal scene means the pointer hit the floor,
-        // rug or lower shelf BELOW the top (seen 2026-06-13: star hung between
-        // the pedestal legs) — re-anchor to the derived D, not the band edge.
-        if (raw < lo && !scene.big) dist = scene.D;
+        // ANY out-of-band distance means the pointer hit a different surface
+        // (floor/rug below, or a coffee table/sofa BEHIND — seen 2026-06-13
+        // twice: star between pedestal legs, flint onto the sofa). Don't trust
+        // a clamped edge: snap fully home to the derived scene.
+        dist = scene.D;
         sy = Math.round(H / 2 + (Math.atan((CAM_H - surfaceH) / dist) / Math.PI) * H);
-        console.log(`detect dist ${raw.toFixed(2)}m outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] → dist ${dist}m, re-anchor y ${s.y}→${sy}`);
+        console.log(`detect dist ${raw.toFixed(2)}m outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] → snap to derived D=${dist}m, y ${s.y}→${sy}`);
       }
       const d = dimensions || {};
       const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
@@ -307,7 +343,8 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
       };
     }
   } catch (e) { console.error("surface detect fell back to convention:", e.message); }
-  const stonePng = await sharp(cutout).resize(box.pxW, box.pxH, { fit: "fill" }).png().toBuffer();
+  const rawPng = await sharp(cutout).resize(box.pxW, box.pxH, { fit: "fill" }).png().toBuffer();
+  const stonePng = await relightCutout(rawPng, jpeg, box, W, H).catch(() => rawPng);
   let pano = await sharp(jpeg)
     .composite([{ input: stonePng, left: box.left, top: box.top }])
     .jpeg({ quality: 95 })
@@ -321,10 +358,18 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
 
   try {
     const harmonized = await gemini(key, [
-      { text: `A small stone object was digitally pasted onto the surface at the center of this photo. Integrate it into the scene: add the soft contact shadow it would cast on the surface beneath it, and subtle light interaction consistent with the room's lighting. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
+      { text: `A small stone object sits on the surface at the center of this photo. Its colors are already matched to the room, but it lacks grounding: add the soft contact shadow it would cast on the surface beneath it, gentle ambient occlusion where it meets the surface, and a subtle reflection or light spill if the surface is glossy. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
       { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
     ], "embed-harmonize");
-    const back = await sharp(harmonized).resize(Math.round(cw), Math.round(ch), { fit: "fill" }).jpeg({ quality: 95 }).toBuffer();
+    // feather the crop's borders so its rectangle never shows as a tonal seam
+    const cwI = Math.round(cw), chI = Math.round(ch);
+    const F = Math.max(12, Math.round(Math.min(cwI, chI) * 0.08)); // feather width
+    const maskSvg = Buffer.from(
+      `<svg width="${cwI}" height="${chI}"><rect x="${F}" y="${F}" width="${cwI - 2 * F}" height="${chI - 2 * F}" fill="white"/></svg>`);
+    const mask = await sharp(maskSvg).resize(cwI, chI).blur(F / 2).extractChannel(0).raw().toBuffer();
+    const back = await sharp(harmonized).resize(cwI, chI, { fit: "fill" }).removeAlpha()
+      .joinChannel(mask, { raw: { width: cwI, height: chI, channels: 1 } })
+      .png().toBuffer();
     pano = await sharp(pano).composite([{ input: back, left: cl, top: ct }]).jpeg({ quality: 95 }).toBuffer();
     // size guard: the exact cutout goes back on top
     pano = await sharp(pano).composite([{ input: stonePng, left: box.left, top: box.top }]).jpeg({ quality: 92 }).toBuffer();
