@@ -381,7 +381,8 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
 
 const { stoneEmail, send: sendMail } = require("./_email.js");
 
-async function sendEmail({ resendKey, to, name, desc, jpeg }) {
+async function sendEmail({ resendKey, to, name, desc, dreamId, imageUrl }) {
+  const viewUrl = dreamId ? `https://shaym.beauty/?dream=${dreamId}` : "https://shaym.beauty";
   return sendMail({
     resendKey,
     to,
@@ -390,16 +391,26 @@ async function sendEmail({ resendKey, to, name, desc, jpeg }) {
       preheader: `Your dream is ready — ${name}, at home with you.`,
       heading: "Your dream is ready",
       intro: `<em>“${desc.replace(/&/g, "&amp;").replace(/</g, "&lt;")}”</em><br/><br/>` +
-        `The attached image is a full 360° panorama of your home with <strong style="color:#fff">${name}</strong> in it — open it in any 360 viewer, or come back and dream another room.`,
+        `<strong style="color:#fff">${name}</strong> is standing in your room. Step inside and look around.`,
+      image: imageUrl || null,
       rows: [{ label: "Stone", value: name }],
-      cta: { label: "Dream another room", url: "https://shaym.beauty" },
+      cta: { label: "See it in 360°", url: viewUrl },
     }),
-    attachments: [{ filename: "your-home-360.jpg", content: jpeg.toString("base64") }],
   });
 }
 
 module.exports = async (req, res) => {
   if (req.method === "GET") {
+    // ?id=<uuid> → a saved dream (powers the email's "see it in the app" link)
+    const id = (req.query && req.query.id) || "";
+    if (id && /^[0-9a-f-]{36}$/.test(id) && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+      const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
+      const row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams?id=eq.${id}&select=image,stone_id,description`, { headers: h })
+        .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+      if (!row || !row.image) { res.statusCode = 404; return res.json({ error: "Dream not found." }); }
+      res.setHeader("Cache-Control", "s-maxage=3600");
+      return res.json(row);
+    }
     return res.json({ emailDelivery: !!process.env.RESEND_API_KEY });
   }
   if (req.method !== "POST") {
@@ -548,8 +559,10 @@ module.exports = async (req, res) => {
       generate(args)
         .then(withStone)
         .then(async ({ pano }) => {
-          await saveDream(pano);
-          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, jpeg: pano });
+          await saveDream(pano); // permanent URL the email links into
+          const imageUrl = dreamId && process.env.SUPABASE_URL
+            ? `${process.env.SUPABASE_URL}/storage/v1/object/public/stones/dreams/${dreamId}.jpg` : null;
+          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, dreamId, imageUrl });
         })
         .catch((e) => console.error("dream-email failed:", e.message)),
     );

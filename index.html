@@ -434,6 +434,20 @@
       .catch(()=>fetch('stones/manifest.json').then(r=>r.ok?r.json():[]).catch(()=>[])
         .then(d=>{ STONES=d; renderCards(); }));
 
+    // deep link from the "your dream is ready" email: open the saved 360 directly
+    const dreamParam=new URLSearchParams(location.search).get('dream');
+    if(dreamParam){
+      fetch('/api/dream?id='+encodeURIComponent(dreamParam))
+        .then(r=>r.ok?r.json():Promise.reject())
+        .then(d=>fetch(d.image)).then(r=>r.ok?r.blob():Promise.reject())
+        .then(blob=>{
+          activeStone=null;                                   // stone is baked into the archive copy
+          document.getElementById('panoWalk').hidden=true;    // walking would re-render it away
+          openPano(blob,null);
+        })
+        .catch(()=>{});
+    }
+
     // ---- offer ----
     function toggleOffer(e){ if(e) e.stopPropagation();
       document.getElementById('offerToggle').hidden = true;
@@ -713,6 +727,7 @@
       pano.classList.remove('open');
       document.getElementById('panoBuilding').hidden=true;
       document.getElementById('panoBack').hidden=true;
+      document.getElementById('panoWalk').hidden=false;   // restore after dream-view mode
       if(panoState){ panoState.destroy(); panoState=null; }
       walking=false; panoHistory=[];
       prefetch=null; clearTimeout(prefetchTimer);

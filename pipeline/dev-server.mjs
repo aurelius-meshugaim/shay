@@ -33,15 +33,17 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 createServer(async (req, res) => {
   try {
     const route = API_ROUTES[req.url.split("?")[0]];
-    if (route && req.url !== "/api/dream") {
+    if (route && req.url.split("?")[0] !== "/api/dream") {
       const chunks = [];
       for await (const c of req) chunks.push(c);
       try { req.body = JSON.parse(Buffer.concat(chunks).toString() || "{}"); } catch { req.body = {}; }
+      req.query = Object.fromEntries(new URL(req.url, "http://x").searchParams);
       req.headers["x-forwarded-proto"] = "http";
       res.json = (obj) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
       return route(req, res);
     }
-    if (req.url === "/api/dream") {
+    if (req.url.split("?")[0] === "/api/dream") {
+      req.query = Object.fromEntries(new URL(req.url, "http://x").searchParams);
       const chunks = [];
       for await (const c of req) chunks.push(c);
       try { req.body = JSON.parse(Buffer.concat(chunks).toString() || "{}"); }
