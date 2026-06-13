@@ -5,6 +5,9 @@
     },
     "api/admin.js": {
       "maxDuration": 120
+    },
+    "api/world.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

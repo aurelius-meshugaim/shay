@@ -43,6 +43,7 @@ module.exports = async (req, res) => {
       original: m.original,
       variants: m.variants,
       cutout: db?.images?.cutout || null,
+      model_glb: db?.images?.model_glb || null, // 3D GLB — swappable by owner (replace stones/models/<id>.glb)
     };
   });
 
@@ -65,6 +66,7 @@ module.exports = async (req, res) => {
       original: r.images.original,
       variants,
       cutout: r.images.cutout || null,
+      model_glb: r.images?.model_glb || null,
     });
   }
 

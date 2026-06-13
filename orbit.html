@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stone — 3D in your room</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:Helvetica,Arial,sans-serif}
+canvas{display:block;width:100vw;height:100vh;cursor:grab}
+canvas:active{cursor:grabbing}
+#status{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  color:#fff;font:14px monospace;opacity:.8;text-align:center;pointer-events:none}
+#hint{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.3em;text-transform:uppercase;pointer-events:none;
+  animation:hintFade 7s ease 3s forwards}
+@keyframes hintFade{to{opacity:0}}
+#close{position:fixed;top:18px;right:22px;width:42px;height:42px;border:0;border-radius:50%;
+  background:rgba(0,0,0,.45);color:#fff;font-size:1.5rem;cursor:pointer;z-index:10;
+  display:flex;align-items:center;justify-content:center}
+#close:hover{background:rgba(0,0,0,.75)}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/",
+  "@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+}}
+</script>
+</head>
+<body>
+<div id="status">Loading room…</div>
+<div id="hint">drag to circle the stone &middot; pinch to zoom</div>
+<button id="close" title="Close 3D view" onclick="window.history.length>1?history.back():window.close()">&times;</button>
+<script type="module">
+import * as THREE from "three";
+import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const p = new URLSearchParams(location.search);
+const SPZ_URL = p.get("world");
+const GLB_URL = p.get("stone");
+
+if (!SPZ_URL || !GLB_URL) {
+  document.getElementById("status").textContent = "Missing world or stone parameter.";
+  throw new Error("Missing params");
+}
+
+const status = document.getElementById("status");
+const canvas = document.createElement("canvas");
+document.body.insertBefore(canvas, document.getElementById("status"));
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 1000);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const spark = new SparkRenderer({ renderer, view: { sort32: true } });
+scene.add(spark);
+
+// Room — Marble gaussian splat. Identity quaternion = upright (Y-up, no rotation).
+status.textContent = "Loading room…";
+const room = new SplatMesh({ url: SPZ_URL });
+room.quaternion.set(1, 0, 0, 0); // identity — renders upright
+scene.add(room);
+
+// Pedestal — cylinder below the stone
+const GROUND_OFFSET = 1.3924; // splat floor Y (meters, Y-up)
+const floorY = -GROUND_OFFSET;
+const STONE_AT = new THREE.Vector3(0, 0, -0.7); // slightly in front of room center
+const PED_H = 1.0;
+const PED_TOP = floorY + PED_H;
+
+const ped = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.18, 0.22, PED_H, 40),
+  new THREE.MeshStandardMaterial({ color: 0x6b5440, roughness: 0.85 })
+);
+ped.position.set(STONE_AT.x, floorY + PED_H / 2, STONE_AT.z);
+scene.add(ped);
+
+// Lights (splat is self-lit; GLB stone + pedestal need light)
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404036, 1.4));
+const dir = new THREE.DirectionalLight(0xfff4e6, 1.6);
+dir.position.set(2, 4, 1.5);
+scene.add(dir);
+
+let stoneCenter = new THREE.Vector3(STONE_AT.x, PED_TOP + 0.18, STONE_AT.z);
+
+// Stone GLB — normalize to ~0.30 m tall, sit on pedestal
+status.textContent = "Loading stone…";
+new GLTFLoader().load(GLB_URL, (g) => {
+  const o = g.scene;
+  const box = new THREE.Box3().setFromObject(o);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const s = 0.30 / (size.y || 1);
+  o.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(o);
+  const c = new THREE.Vector3();
+  box2.getCenter(c);
+  o.position.set(
+    STONE_AT.x - c.x,
+    PED_TOP - box2.min.y, // base meets pedestal top
+    STONE_AT.z - c.z
+  );
+  scene.add(o);
+  const fb = new THREE.Box3().setFromObject(o);
+  fb.getCenter(stoneCenter);
+  controls.target.copy(stoneCenter);
+  controls.update();
+  status.style.display = "none";
+}, undefined, (err) => {
+  console.error("GLB load error:", err);
+  status.textContent = "Stone loaded (splat room only)";
+  status.style.display = "";
+  setTimeout(() => { status.style.display = "none"; }, 3000);
+});
+
+// Orbit controls — stone-centered, horizontal-only (polar locked)
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(stoneCenter);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enableZoom = true;
+controls.enablePan = false;
+controls.zoomSpeed = 0.6;
+controls.minDistance = 0.5;
+controls.maxDistance = 2.5;
+
+const EL = Math.PI / 2 - 0.32; // ~18° above horizontal
+controls.minPolarAngle = EL;
+controls.maxPolarAngle = EL; // lock vertical → horizontal orbit only
+controls.rotateSpeed = 0.5;
+
+const R = 1.35;
+camera.position.set(
+  stoneCenter.x,
+  stoneCenter.y + R * Math.cos(EL),
+  stoneCenter.z + R * Math.sin(EL)
+);
+controls.update();
+
+// Resize
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// Render loop
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+  spark.update();
+});
+
+// Test hooks (playwright screenshots)
+window.camera = camera;
+window.controls = controls;
+window.setAz = (deg) => {
+  const a = THREE.MathUtils.degToRad(deg);
+  const hr = R * Math.sin(EL);
+  camera.position.set(
+    stoneCenter.x + hr * Math.sin(a),
+    stoneCenter.y + R * Math.cos(EL),
+    stoneCenter.z + hr * Math.cos(a)
+  );
+  controls.update();
+};
+</script>
+</body></html>

@@ -252,6 +252,22 @@
       font-family:inherit; font-size:.68rem; font-weight:600; letter-spacing:.12em;
       text-transform:uppercase; color:#06080b; background:linear-gradient(120deg,#fff,var(--c2)); }
 
+    /* ---- "Explore in 3D" button (appears after flat dream lands) ---- */
+    .explore3d-btn { position:absolute; bottom:42px; right:14px; z-index:2;
+      border:0; cursor:pointer; padding:.48rem 1rem; border-radius:999px; font-family:inherit;
+      font-size:.62rem; font-weight:600; letter-spacing:.18em; text-indent:.18em; text-transform:uppercase;
+      color:#fff; background:rgba(0,0,0,.5); backdrop-filter:blur(6px);
+      border:1px solid rgba(255,255,255,.25); transition:all .2s; white-space:nowrap; }
+    .explore3d-btn:hover { background:rgba(0,0,0,.75); border-color:rgba(255,255,255,.5); }
+    .explore3d-btn[hidden] { display:none; }
+    .explore3d-btn:disabled { opacity:.5; cursor:default; }
+    /* while the 3D world builds: a soft overlay message on the dream slide */
+    .world3d-building { position:absolute; bottom:42px; right:14px; z-index:2;
+      font-size:.62rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+      color:rgba(255,255,255,.7); text-shadow:0 1px 3px rgba(0,0,0,.9);
+      animation:buildPulse 2.4s ease-in-out infinite; pointer-events:none; }
+    .world3d-building[hidden] { display:none; }
+
     /* ---- 360 panorama viewer ---- */
     .pano { position:fixed; inset:0; z-index:30; display:none; background:#06080b; }
     .pano.open { display:block; animation:lbIn .3s ease; }
@@ -312,6 +328,8 @@
         <img class="dream-result" id="dreamResult" alt="Your room" hidden />
         <div class="dream-enter" id="dreamEnter" hidden>step inside &mdash; 360&deg;</div>
         <button class="dream-again" id="dreamAgain" hidden onclick="regenDream(event)">&#8635;&nbsp;dream it again</button>
+        <button class="explore3d-btn" id="explore3dBtn" hidden onclick="explore3D(event)" title="Build a 3D room with your stone on a pedestal — ~4 minutes">&#9655;&nbsp;Explore in 3D</button>
+        <div class="world3d-building" id="world3dBuilding" hidden>building your 3D room&hellip;</div>
         <div class="dream-panel">
           <div class="dream-soon">coming soon</div>
           <div class="dream-head">This stone, in your home</div>
@@ -539,6 +557,9 @@
       document.getElementById('dreamResult').hidden=!r;
       document.getElementById('dreamEnter').hidden=!r;
       document.getElementById('dreamAgain').hidden=!r;
+      // "Explore in 3D": show when there's a result AND the stone has a GLB
+      const has3d = !!(r && activeStone && activeStone.model_glb);
+      document.getElementById('explore3dBtn').hidden = !has3d;
       const tb=thumbs.querySelector('.dream-thumb img');
       if(r){
         document.getElementById('dreamResult').src=r.url;
@@ -810,6 +831,83 @@
     document.addEventListener('keydown', e=>{
       if(e.key==='Escape' && pano.classList.contains('open')){ e.stopPropagation(); closePano(); }
     }, true);
+
+    // ---- "Explore in 3D" — Marble 3D world builder ----
+    // The flat 360 dream is the default and stays untouched.
+    // This is a purely additive opt-in path: POST /api/world → poll GET → open orbit.html.
+    const WORLD_LINES = [
+      "Building your room in 3D…",
+      "Sculpting walls and light…",
+      "Placing the stone on its pedestal…",
+      "Almost there… (~4 min total)",
+    ];
+    let building3d = false, worldPollTimer = null;
+
+    async function explore3D(e) {
+      if (e) e.stopPropagation();
+      if (building3d || !activeStone) return;
+      const result = activeStone && dreamResults[activeStone.id];
+      if (!result) return;
+
+      building3d = true;
+      const btn = document.getElementById('explore3dBtn');
+      const bld = document.getElementById('world3dBuilding');
+      btn.hidden = true;
+      bld.hidden = false;
+
+      let li = 0; bld.textContent = WORLD_LINES[0];
+      const ticker = setInterval(() => { bld.textContent = WORLD_LINES[++li % WORLD_LINES.length]; }, 18000);
+
+      try {
+        // POST — kick off world generation
+        const postR = await fetch('/api/world', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stone: activeStone.id, description: result.desc }),
+        });
+        if (!postR.ok) {
+          const d = await postR.json().catch(() => ({}));
+          throw new Error(d.error || 'World generation failed.');
+        }
+        const { operation_id } = await postR.json();
+
+        // Poll GET until ready
+        const t0 = Date.now();
+        const MAX_WAIT = 8 * 60 * 1000; // 8 min hard cap
+        while (Date.now() - t0 < MAX_WAIT) {
+          await new Promise(ok => setTimeout(ok, 10000)); // poll every 10s
+          const pollR = await fetch('/api/world?op=' + encodeURIComponent(operation_id));
+          if (!pollR.ok) continue;
+          const d = await pollR.json();
+          if (d.status === 'ready') {
+            clearInterval(ticker);
+            // open orbit.html in same tab (back button returns here)
+            const orbitUrl = '/orbit.html?world=' + encodeURIComponent(d.spz) +
+              '&stone=' + encodeURIComponent(d.glb || activeStone.model_glb || '');
+            window.location.href = orbitUrl;
+            return;
+          }
+          if (d.status === 'error') throw new Error(d.message || 'World generation failed.');
+          // pending — keep polling
+          if (d.progress != null) {
+            bld.textContent = `Building your 3D room… ${Math.round(d.progress)}%`;
+          }
+        }
+        throw new Error('3D world timed out — try again.');
+      } catch (err) {
+        clearInterval(ticker);
+        bld.textContent = err.message || '3D world unavailable — try again.';
+        setTimeout(() => {
+          if (!building3d) return;
+          bld.hidden = true;
+          btn.hidden = false;
+          building3d = false;
+        }, 3500);
+        return;
+      } finally {
+        clearInterval(ticker);
+      }
+    }
   </script>
 </body>
 </html>
