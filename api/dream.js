@@ -288,8 +288,12 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
       dist = Math.min(hi, Math.max(lo, raw));
       let sy = s.y;
       if (raw < lo || raw > hi) {
+        // A low-side miss on a pedestal scene means the pointer hit the floor,
+        // rug or lower shelf BELOW the top (seen 2026-06-13: star hung between
+        // the pedestal legs) — re-anchor to the derived D, not the band edge.
+        if (raw < lo && !scene.big) dist = scene.D;
         sy = Math.round(H / 2 + (Math.atan((CAM_H - surfaceH) / dist) / Math.PI) * H);
-        console.log(`detect dist ${raw.toFixed(2)}m outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] → re-anchor y ${s.y}→${sy}`);
+        console.log(`detect dist ${raw.toFixed(2)}m outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] → dist ${dist}m, re-anchor y ${s.y}→${sy}`);
       }
       const d = dimensions || {};
       const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
