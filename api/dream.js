@@ -49,14 +49,20 @@ function limited(ip) {
 
 async function gemini(key, parts, label) {
   for (let attempt = 1; ; attempt++) {
-    const r = await fetch(`${API}/${MODEL}:generateContent?key=${key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } },
-      }),
-    });
+    let r;
+    try {
+      r = await fetch(`${API}/${MODEL}:generateContent?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } },
+        }),
+      });
+    } catch (e) { // network-level flake — retry like a 5xx
+      if (attempt <= 2) { await new Promise((ok) => setTimeout(ok, attempt * 2000)); continue; }
+      throw new Error(`${label}: ${e.message}${e.cause ? ` (${e.cause.message || e.cause.code})` : ""}`);
+    }
     if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
       await new Promise((ok) => setTimeout(ok, attempt * 3000));
       continue;
@@ -217,11 +223,17 @@ async function finish(repaired) {
 // Text/vision call (no image output) — used for pedestal detection.
 async function geminiText(key, parts, label) {
   for (let attempt = 1; ; attempt++) {
-    const r = await fetch(`${API}/gemini-2.5-flash:generateContent?key=${key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts }] }),
-    });
+    let r;
+    try {
+      r = await fetch(`${API}/gemini-2.5-flash:generateContent?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts }] }),
+      });
+    } catch (e) { // network-level flake — retry like a 5xx
+      if (attempt <= 2) { await new Promise((ok) => setTimeout(ok, attempt * 2000)); continue; }
+      throw new Error(`${label}: ${e.message}${e.cause ? ` (${e.cause.message || e.cause.code})` : ""}`);
+    }
     if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
       await new Promise((ok) => setTimeout(ok, 2000));
       continue;
