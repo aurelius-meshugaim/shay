@@ -1,16 +1,28 @@
 // POST /api/dream  { stone, description, email? }
 // GET  /api/dream  → { emailDelivery: bool }   (capability probe for the UI)
 //
-// Three-call all-Gemini pipeline (probed 2026-06-12, see OCW
-// space/rnd/2026-06-12-shay-dream-360/probe/PROBE.md):
+// Embedded-stone pipeline (reworked 2026-06-13 — measurement → room → sketch
+// → integration render; the old paste-as-final looked pasted):
 //   1. RESTYLE a true-equirect template (stones/templates/spacious-1.jpg)
-//      into the visitor's described room AND insert the real stone at its
-//      manifest dimensions. True projection is inherited from the template;
-//      the heavy restyle breaks the wrap seam.
-//   2. ROLL 50% (sharp) so the broken seam sits mid-frame, then a light
-//      Gemini repair pass heals it (light edits are wrap-safe, 4/4 probes).
-//   3. ROLL back so the stone faces the viewer's initial yaw.
-// ~35s total — inside the 60s budget.
+//      into the visitor's described room with an EMPTY display stage derived
+//      from the stone's true measurements (sceneFromStone). True projection
+//      is inherited from the template; the heavy restyle breaks the wrap seam
+//      (healed once, at the very end).
+//   2. SKETCH: detect where the model actually put the display surface
+//      (median-of-3 pointing), composite the relit cutout there at the exact
+//      derived geometry. The sketch is an INTERNAL artifact, never served.
+//   3. INTEGRATION RENDER: one Gemini call re-renders the whole pano with the
+//      stone truly part of the scene (contact shadow, room light, perspective)
+//      at the sketch's exact position/size; the stone's original photo rides
+//      along as the appearance reference.
+//   4. SIZE GATE: a pointing call boxes the rendered stone; if it inflated
+//      >1.8x (or vanished) we fall back to the previous paste(+harmonize)
+//      result. The shipped path is logged.
+//   5. ROLL 50% (sharp) so the restyle's broken seam sits mid-frame, one
+//      light Gemini repair heals it (light edits are wrap-safe, 4/4 probes),
+//      roll back, normalize 2:1.
+// ~50-57s total — inside the 60s budget (one repair, no crop-harmonize on
+// the happy path).
 //
 // Without email: respond with the JPEG. With email: respond 202 immediately,
 // finish the pipeline via waitUntil, deliver through Resend (needs
@@ -76,11 +88,11 @@ async function roll(buf, frac = 0.5) {
 const roll50 = (buf) => roll(buf, 0.5);
 
 // ---- bottom-up scale chain -------------------------------------------------
-// The room is generated WITHOUT the stone — the client renders the stone's
-// cutout as a 3D layer, so its size is guaranteed by geometry (see OCW
+// The room is generated WITHOUT the stone, then the stone is sketched in at
+// exact geometry and the integration render bakes it into the scene (see OCW
 // rnd/2026-06-13-stone-size-realism/SYNTHESIS.md). ONE derivation, built up
 // from the stone's true measures, drives (a) the generation prompt's exact
-// numbers, (b) the composite geometry, (c) the response headers, (d) the
+// numbers, (b) the sketch geometry, (c) the response headers, (d) the
 // viewer's 3D-layer constants (index.html mirrors these formulas — keep in sync).
 //   stand from stone:  stone center at contemplation height ~125 cm
 //                      ⇒ stand_h = clamp(125 − stone_h/2, 60, 110) cm (<40cm stones);
@@ -130,6 +142,23 @@ function sceneFromStone(dimensions) {
   return { big, standH, topW, topD, D, wallMin, surfaceH, stage };
 }
 
+const REPAIR_PROMPT = `This is a 360-degree equirectangular panorama of a room. There may be a visible vertical seam artifact running down the middle of the image where two parts of the room meet with a hard discontinuity.
+
+Repair ONLY that vertical seam zone: blend the architecture and surfaces across it so the room reads as one continuous space. Keep everything else pixel-faithful — same furniture, same displayed stone, same windows, same lighting, same equirectangular projection. A displayed stone may sit split across the left and right image edges — that split is correct wrap-around, NOT the seam: leave it perfectly intact. The left and right edges of the image are already continuous; keep them exactly continuous.`;
+
+// One full seam pass: roll the broken wrap seam to mid-frame, light Gemini
+// repair, roll back, normalize 2:1. Runs ONCE, at the very end of the dream
+// pipeline (the integration render re-synthesizes globally, so earlier
+// repairs would be wasted budget).
+async function seamRepairFull(key, pano) {
+  const rolled = await roll50(pano);
+  const repaired = await gemini(key, [
+    { text: REPAIR_PROMPT },
+    { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
+  ], "seam-repair");
+  return finish(repaired);
+}
+
 async function generate({ base, key, stage, desc }) {
   const restylePrompt = `This image is a 360-degree equirectangular panorama of an interior, captured from the center of the room at eye level.
 
@@ -147,18 +176,9 @@ CRITICAL: keep the equirectangular projection of the input exactly — same came
     { inlineData: { mimeType: "image/jpeg", data: base.template.toString("base64") } },
   ], "restyle");
 
-  const rolled = await roll50(styled);
-
-  const repairPrompt = `This is a 360-degree equirectangular panorama of a room. There may be a visible vertical seam artifact running down the middle of the image where two parts of the room meet with a hard discontinuity.
-
-Repair ONLY that vertical seam zone: blend the architecture and surfaces across it so the room reads as one continuous space. Keep everything else pixel-faithful — same furniture, same displayed stone, same windows, same lighting, same equirectangular projection. The left and right edges of the image are already continuous; keep them exactly continuous.`;
-
-  const repaired = await gemini(key, [
-    { text: repairPrompt },
-    { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
-  ], "seam-repair");
-
-  return finish(repaired);
+  // NO seam repair here — the wrap seam the restyle broke is healed once, at
+  // the very end (seamRepairFull), after the stone is integrated.
+  return normalize(styled);
 }
 
 // Street-View-style step: re-render the SAME room from a moved camera, then
@@ -166,7 +186,7 @@ Repair ONLY that vertical seam zone: blend the architecture and surfaces across 
 async function walkStep({ key, pano, direction }) {
   const movePrompt = `This is a 360-degree equirectangular panorama of a room, captured from its center at eye level.
 
-Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves. If a small displayed stone sits on a pedestal or table, REMOVE it and any shadow it casts — render its display surface empty.
+Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves. If a displayed stone sits on a pedestal, plinth, table or the floor, KEEP it exactly where it stands — same spot in the room, same physical size, same colors and banding, its shadow staying consistent with the room's light from the new viewpoint.
 
 CRITICAL: output a full 360x180 equirectangular panorama — floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text.`;
 
@@ -176,20 +196,22 @@ CRITICAL: output a full 360x180 equirectangular panorama — floor at the bottom
   ], "walk");
 
   const rolled = await roll50(moved);
-  const repairPrompt = `This is a 360-degree equirectangular panorama of a room. There may be a visible vertical seam artifact running down the middle where two parts of the room meet with a hard discontinuity. Repair ONLY that seam zone: blend the architecture and surfaces across it so the room reads continuous. Keep everything else pixel-faithful, same equirectangular projection, left and right edges exactly continuous.`;
   const repaired = await gemini(key, [
-    { text: repairPrompt },
+    { text: REPAIR_PROMPT },
     { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
   ], "walk-seam-repair");
   return finish(repaired);
 }
 
+// models drift on aspect; normalize to exact 2:1 so the viewer maps a full sphere
+async function normalize(buf) {
+  const { width: w, height: h } = await sharp(buf).metadata();
+  if (w !== 2 * h) return sharp(buf).resize(2 * h, h, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
+  return buf;
+}
+
 async function finish(repaired) {
-  const back = await roll50(repaired); // roll back → original facing restored
-  // models drift on aspect; normalize to exact 2:1 so the viewer maps a full sphere
-  const { width: w, height: h } = await sharp(back).metadata();
-  if (w !== 2 * h) return sharp(back).resize(2 * h, h, { fit: "fill" }).jpeg({ quality: 92 }).toBuffer();
-  return back;
+  return normalize(await roll50(repaired)); // roll back → original facing restored
 }
 
 // Text/vision call (no image output) — used for pedestal detection.
@@ -290,12 +312,71 @@ async function relightCutout(stonePng, panoJpeg, box, W, H) {
   return sharp(px, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
-// Embed the stone INTO the room (R&D rnd/2026-06-13 probe recipe):
+const INTEGRATE_PROMPT = `The first image is a 360-degree equirectangular panorama of a room with a stone roughly collaged onto its display surface near the horizontal center — the stone currently looks pasted on. The second image shows the same stone's true appearance.
+
+Re-render the ENTIRE first image photorealistically so the stone is TRULY part of the scene: resting on its display surface with solid contact, a correct contact shadow and ambient occlusion where it meets the surface, lighting and color fully consistent with the room's light sources, true perspective — and at EXACTLY the same position and EXACTLY the same size as in the collage. The collage is the precise size and position reference: do NOT enlarge, shrink, move or rotate the stone. Use the second image to preserve the stone's true colors, banding, texture and silhouette.
+
+Change nothing else about the room — same furniture, same windows, same materials, same lighting. CRITICAL: keep the equirectangular projection exactly — full 360x180 sphere, floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text, no watermarks.`;
+
+// Did the integration render keep the stone honest? Box it with a pointing
+// call (same 0-1000 [y,x] convention as detectSurface) and compare widths
+// against the sketch. Missing stone or >1.8x inflation trips the gate.
+async function sizeGate(pano, key, box, W) {
+  let txt;
+  try {
+    txt = await geminiText(key, [
+      { text: `This is an equirectangular interior panorama. A stone specimen is displayed near the horizontal center of the image — on a pedestal, plinth, table or the floor. Give the tight bounding box of the stone itself (not its stand). Answer with ONLY JSON: {"box_2d": [ymin, xmin, ymax, xmax]} with coordinates normalized to 0-1000. If no displayed stone is visible, answer {"box_2d": null}. No other text.` },
+      { inlineData: { mimeType: "image/jpeg", data: pano.toString("base64") } },
+    ], "size-gate");
+  } catch (e) {
+    // the gate itself failing is no evidence against the render — accept
+    console.error("size gate errored — accepting integration:", e.message);
+    return { ok: true, note: "gate-error" };
+  }
+  const m = txt.match(/\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]/);
+  if (!m) return { ok: false, reason: `stone missing (gate said: ${txt.slice(0, 80)})` };
+  const widthFrac = (parseFloat(m[4]) - parseFloat(m[2])) / 1000;
+  const sketchFrac = box.pxW / W;
+  const ratio = widthFrac / sketchFrac;
+  if (ratio > 1.8) return { ok: false, reason: `inflated ${ratio.toFixed(2)}x (sketch ${Math.round(sketchFrac * 1000)}‰ → render ${Math.round(widthFrac * 1000)}‰)` };
+  return { ok: true, ratio };
+}
+
+// Previous-generation finale, kept callable as the size-gate FALLBACK:
+// Gemini harmonizes ONLY a crop around the pasted stone (contact shadow,
+// light spill), feathered back in, exact cutout re-pasted on top.
+async function harmonizePaste(sketch, stonePng, box, W, H, key) {
+  const cw = Math.min(W, box.pxW * 3.5), ch = Math.min(H, box.pxH * 3.5);
+  const cl = Math.max(0, Math.min(W - cw, Math.round(box.left + box.pxW / 2 - cw / 2)));
+  const ct = Math.max(0, Math.min(H - ch, Math.round(box.top + box.pxH / 2 - ch / 2)));
+  const crop = await sharp(sketch).extract({ left: cl, top: ct, width: Math.round(cw), height: Math.round(ch) }).jpeg({ quality: 95 }).toBuffer();
+  const harmonized = await gemini(key, [
+    { text: `A small stone object sits on the surface at the center of this photo. Its colors are already matched to the room, but it lacks grounding: add the soft contact shadow it would cast on the surface beneath it, gentle ambient occlusion where it meets the surface, and a subtle reflection or light spill if the surface is glossy. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
+    { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
+  ], "embed-harmonize");
+  // feather the crop's borders so its rectangle never shows as a tonal seam
+  const cwI = Math.round(cw), chI = Math.round(ch);
+  const F = Math.max(12, Math.round(Math.min(cwI, chI) * 0.08)); // feather width
+  const maskSvg = Buffer.from(
+    `<svg width="${cwI}" height="${chI}"><rect x="${F}" y="${F}" width="${cwI - 2 * F}" height="${chI - 2 * F}" fill="white"/></svg>`);
+  const mask = await sharp(maskSvg).resize(cwI, chI).blur(F / 2).extractChannel(0).raw().toBuffer();
+  const back = await sharp(harmonized).resize(cwI, chI, { fit: "fill" }).removeAlpha()
+    .joinChannel(mask, { raw: { width: cwI, height: chI, channels: 1 } })
+    .png().toBuffer();
+  let pano = await sharp(sketch).composite([{ input: back, left: cl, top: ct }]).jpeg({ quality: 95 }).toBuffer();
+  // size guard: the exact cutout goes back on top
+  return sharp(pano).composite([{ input: stonePng, left: box.left, top: box.top }]).jpeg({ quality: 92 }).toBuffer();
+}
+
+// Embed the stone INTO the room (reworked 2026-06-13 — embedded, not pasted):
 // 1. relight the cutout to the room's light (deterministic), feather its edge
-// 2. paste at the geometrically exact size
-// 3. Gemini harmonizes ONLY a crop around it (contact shadow, light spill)
-// 4. the relit cutout is re-pasted on top — the model never owns the stone's pixels
-async function embedStone(jpeg, cutout, dimensions, scene, key) {
+// 2. SKETCH: paste at the geometrically exact size — internal artifact only
+// 3. INTEGRATION RENDER: Gemini re-renders the whole pano with the stone truly
+//    in the scene, sketch as position/size reference, original photo as
+//    appearance reference
+// 4. SIZE GATE: stone inflated >1.8x or missing → previous paste(+harmonize)
+//    path ships instead (harmonize only if the 60s budget still allows)
+async function embedStone(jpeg, cutout, dimensions, scene, key, original, startedAt) {
   const { width: W, height: H } = await sharp(jpeg).metadata();
   let box = stoneBox(W, H, dimensions, scene);
   let lonDeg = 180, dist = scene.D;
@@ -345,38 +426,41 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
   } catch (e) { console.error("surface detect fell back to convention:", e.message); }
   const rawPng = await sharp(cutout).resize(box.pxW, box.pxH, { fit: "fill" }).png().toBuffer();
   const stonePng = await relightCutout(rawPng, jpeg, box, W, H).catch(() => rawPng);
-  let pano = await sharp(jpeg)
+  // the SKETCH: room + collaged stone at exact geometry — internal, never served
+  const sketch = await sharp(jpeg)
     .composite([{ input: stonePng, left: box.left, top: box.top }])
     .jpeg({ quality: 95 })
     .toBuffer();
 
-  // crop ~3x the stone's box, clamped to the image
-  const cw = Math.min(W, box.pxW * 3.5), ch = Math.min(H, box.pxH * 3.5);
-  const cl = Math.max(0, Math.min(W - cw, Math.round(box.left + box.pxW / 2 - cw / 2)));
-  const ct = Math.max(0, Math.min(H - ch, Math.round(box.top + box.pxH / 2 - ch / 2)));
-  const crop = await sharp(pano).extract({ left: cl, top: ct, width: Math.round(cw), height: Math.round(ch) }).jpeg({ quality: 95 }).toBuffer();
-
+  let pano = null, path = "paste";
   try {
-    const harmonized = await gemini(key, [
-      { text: `A small stone object sits on the surface at the center of this photo. Its colors are already matched to the room, but it lacks grounding: add the soft contact shadow it would cast on the surface beneath it, gentle ambient occlusion where it meets the surface, and a subtle reflection or light spill if the surface is glossy. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
-      { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
-    ], "embed-harmonize");
-    // feather the crop's borders so its rectangle never shows as a tonal seam
-    const cwI = Math.round(cw), chI = Math.round(ch);
-    const F = Math.max(12, Math.round(Math.min(cwI, chI) * 0.08)); // feather width
-    const maskSvg = Buffer.from(
-      `<svg width="${cwI}" height="${chI}"><rect x="${F}" y="${F}" width="${cwI - 2 * F}" height="${chI - 2 * F}" fill="white"/></svg>`);
-    const mask = await sharp(maskSvg).resize(cwI, chI).blur(F / 2).extractChannel(0).raw().toBuffer();
-    const back = await sharp(harmonized).resize(cwI, chI, { fit: "fill" }).removeAlpha()
-      .joinChannel(mask, { raw: { width: cwI, height: chI, channels: 1 } })
-      .png().toBuffer();
-    pano = await sharp(pano).composite([{ input: back, left: cl, top: ct }]).jpeg({ quality: 95 }).toBuffer();
-    // size guard: the exact cutout goes back on top
-    pano = await sharp(pano).composite([{ input: stonePng, left: box.left, top: box.top }]).jpeg({ quality: 92 }).toBuffer();
+    const t0 = Date.now();
+    const ref = original || cutout; // appearance reference: original photo, cutout if missing
+    const refMime = ref[0] === 0x89 ? "image/png" : "image/jpeg"; // sniff, don't trust extensions
+    const integrated = await normalize(await gemini(key, [
+      { text: INTEGRATE_PROMPT },
+      { inlineData: { mimeType: "image/jpeg", data: sketch.toString("base64") } },
+      { inlineData: { mimeType: refMime, data: ref.toString("base64") } },
+    ], "integrate"));
+    const tGate = Date.now();
+    const gate = await sizeGate(integrated, key, box, W);
+    console.log(`integrate ${tGate - t0}ms, gate ${Date.now() - tGate}ms → ${gate.ok ? `OK (ratio ${gate.ratio?.toFixed(2) ?? "n/a"})` : `TRIPPED: ${gate.reason}`}`);
+    if (gate.ok) { pano = integrated; path = "integrated"; }
   } catch (e) {
-    console.error("harmonize skipped:", e.message); // plain composite still ships
+    console.error("integration render failed → paste fallback:", e.message);
   }
-  return { pano, lonDeg, dist, surfaceH: scene.surfaceH };
+
+  if (!pano) {
+    pano = sketch;
+    // previous-generation harmonize, only while the 60s budget still affords
+    // it (final seam pass still ahead needs ~15-18s)
+    const elapsed = startedAt ? Date.now() - startedAt : 0;
+    if (elapsed < 34000) {
+      try { pano = await harmonizePaste(sketch, stonePng, box, W, H, key); path = "paste+harmonize"; }
+      catch (e) { console.error("fallback harmonize skipped:", e.message); }
+    } else console.log(`fallback harmonize skipped — ${Math.round(elapsed / 1000)}s elapsed, budget too tight`);
+  }
+  return { pano, lonDeg, dist, surfaceH: scene.surfaceH, embedded: true, path };
 }
 
 const { stoneEmail, send: sendMail } = require("./_email.js");
@@ -518,19 +602,41 @@ module.exports = async (req, res) => {
     }).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]?.id || null).catch(() => null);
   }
 
-  // embed the stone into the env (detect surface → composite → crop-harmonize)
+  const startedAt = Date.now();
+
+  // embed the stone into the env (detect surface → sketch → integration render
+  // → size gate, paste fallback)
   async function withStone(jpeg) {
-    const bare = { pano: jpeg, lonDeg: 180, dist: plan.D, surfaceH: plan.surfaceH };
+    const bare = { pano: jpeg, lonDeg: 180, dist: plan.D, surfaceH: plan.surfaceH, embedded: false, path: "bare" };
     const cutoutUrl = row?.images?.cutout;
     if (!cutoutUrl) return bare;
     try {
       const c = await fetch(cutoutUrl);
       if (!c.ok) return bare;
-      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan, KEY);
+      // the stone's original photo = appearance reference for the integration
+      // render. DB stones carry a URL; legacy manifest stones live in the repo.
+      const original = await Promise.any(
+        [row?.images?.original, `${host}/stones/${stone}/original.jpg`, `${host}/stones/${stone}/original.png`]
+          .filter(Boolean)
+          .map((u) => fetch(u).then(async (r) => { if (!r.ok) throw new Error("miss"); return Buffer.from(await r.arrayBuffer()); })),
+      ).catch(() => null);
+      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan, KEY, original, startedAt);
     } catch (e) {
       console.error("embed skipped, serving bare pano:", e.message);
       return bare;
     }
+  }
+
+  // full sync pipeline: room → embed → ONE seam pass at the very end
+  async function dreamPipeline() {
+    const tR = Date.now();
+    const styled = await generate(args);
+    const tE = Date.now();
+    const embedded = await withStone(styled);
+    const tS = Date.now();
+    const pano = await seamRepairFull(KEY, embedded.pano);
+    console.log(`dream timings: restyle=${((tE - tR) / 1000).toFixed(1)}s embed=${((tS - tE) / 1000).toFixed(1)}s seam=${((Date.now() - tS) / 1000).toFixed(1)}s total=${((Date.now() - tR) / 1000).toFixed(1)}s path=${embedded.path}`);
+    return { ...embedded, pano };
   }
 
   // permanence: store the finished illustration and link it to the log row
@@ -556,8 +662,7 @@ module.exports = async (req, res) => {
     res.statusCode = 202;
     res.json({ queued: true });
     waitUntil(
-      generate(args)
-        .then(withStone)
+      dreamPipeline()
         .then(async ({ pano }) => {
           await saveDream(pano); // permanent URL the email links into
           const imageUrl = dreamId && process.env.SUPABASE_URL
@@ -570,13 +675,14 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { pano, lonDeg, dist, surfaceH } = await withStone(await generate(args)); // embedded: surface-detected, shadowed, exact pixels
+    const { pano, lonDeg, dist, surfaceH, embedded } = await dreamPipeline(); // stone generated INTO the room (or paste fallback — both baked)
     res.statusCode = 200;
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("X-Stone-Lon", String(Math.round(lonDeg * 10) / 10));   // viewer aligns its 3D layer here
+    res.setHeader("X-Stone-Lon", String(Math.round(lonDeg * 10) / 10));   // viewer faces the stone here
     res.setHeader("X-Stone-Dist", String(Math.round(dist * 100) / 100));
     res.setHeader("X-Stone-Surface-H", String(Math.round(surfaceH * 100) / 100)); // m — derived stand top
+    if (embedded) res.setHeader("X-Stone-Embedded", "1"); // stone is IN the pixels → viewer skips its 3D billboard
     res.end(pano);
     waitUntil(saveDream(pano).catch(() => {})); // archive the same embedded copy
     return;
