@@ -276,14 +276,17 @@ module.exports = async (req, res) => {
     console.log(`room pano uploaded: ${roomUrl}`);
 
     // 4. Kick off Marble world generation (do NOT await — fire and forget)
+    // The API requires world_prompt as a wrapper around the ImagePrompt object.
     const marbleBody = {
-      type: "image",
-      image_prompt: {
-        source: "uri",
-        uri: roomUrl,
+      world_prompt: {
+        type: "image",
+        image_prompt: {
+          source: "uri",
+          uri: roomUrl,
+        },
+        is_pano: true,
+        text_prompt: desc,
       },
-      is_pano: true,
-      text_prompt: desc,
     };
     console.log("Marble request body:", JSON.stringify(marbleBody));
     const marbleR = await fetch(`${MARBLE_API}/worlds:generate`, {
