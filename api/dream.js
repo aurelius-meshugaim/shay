@@ -11,10 +11,11 @@
 //   2. SKETCH: detect where the model actually put the display surface
 //      (median-of-3 pointing), composite the relit cutout there at the exact
 //      derived geometry. The sketch is an INTERNAL artifact, never served.
-//   3. INTEGRATION RENDER: one Gemini call re-renders the whole pano with the
-//      stone truly part of the scene (contact shadow, room light, perspective)
-//      at the sketch's exact position/size; the stone's original photo rides
-//      along as the appearance reference.
+//   3. INTEGRATION RENDER: one Gemini call re-renders a generous crop around
+//      the sketch box so the stone is truly part of the scene (contact
+//      shadow, room light, perspective) at the sketch's exact position/size;
+//      the stone's original photo rides along as the appearance reference.
+//      (A whole-pano re-render inflated the stone 3-8x — too small a subject.)
 //   4. SIZE GATE: a pointing call boxes the rendered stone; if it inflated
 //      >1.8x (or vanished) we fall back to the previous paste(+harmonize)
 //      result. The shipped path is logged.
@@ -257,12 +258,11 @@ async function detectSurface(jpeg, key, W, H, scene) {
   // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
   // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
   // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
-  // Pointing input is downscaled (coords are normalized → resolution-free);
-  // full-size uploads ×3 dominated the budget for nothing.
-  const small = await sharp(jpeg).resize(1280, 640, { fit: "fill" }).jpeg({ quality: 80 }).toBuffer();
+  // Full-resolution input on purpose: a 1280-wide downscale made all three
+  // pointers miss above the horizon (2026-06-13) — do not "optimize" this.
   const parts = [
     { text: `This is an equirectangular interior panorama. Near the horizontal center of the image there is ${what}. Point to the exact spot on that surface where a displayed object would touch it (the center of the surface's visible top face). Answer with ONLY JSON: {"point": [y, x]} with coordinates normalized to 0-1000. No other text.` },
-    { inlineData: { mimeType: "image/jpeg", data: small.toString("base64") } },
+    { inlineData: { mimeType: "image/jpeg", data: jpeg.toString("base64") } },
   ];
   const settled = await Promise.allSettled([1, 2, 3].map(() => geminiText(key, parts, "detect-surface")));
   const pts = [];
@@ -327,23 +327,21 @@ async function relightCutout(stonePng, panoJpeg, box, W, H) {
   return sharp(px, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
-const INTEGRATE_PROMPT = `The first image is a 360-degree equirectangular panorama of a room with a stone roughly collaged onto its display surface near the horizontal center — the stone currently looks pasted on. The second image shows the same stone's true appearance.
+const INTEGRATE_PROMPT = `The first image is a photograph of a room interior. A stone has been roughly collaged onto the display surface at the center of the photo — it currently looks pasted on: flat shading, a hard cut edge, no contact with the surface. The second image shows the same stone's true appearance.
 
-Re-render the ENTIRE first image photorealistically so the stone is TRULY part of the scene: resting on its display surface with solid contact, a correct contact shadow and ambient occlusion where it meets the surface, lighting and color fully consistent with the room's light sources, true perspective — and at EXACTLY the same position and EXACTLY the same size as in the collage. The collage is the precise size and position reference: do NOT enlarge, shrink, move or rotate the stone. Use the second image to preserve the stone's true colors, banding, texture and silhouette.
+Re-render the first image photorealistically so the stone is TRULY part of the scene: resting on its display surface with solid contact, a correct soft contact shadow and ambient occlusion where it meets the surface, its lighting and color cast fully consistent with the room's light sources, in true perspective — and at EXACTLY the same position and EXACTLY the same size as the collage shows. The collage is the precise size and position reference: do NOT enlarge, shrink, move or rotate the stone. Use the second image to keep the stone's true colors, banding, texture and silhouette faithful.
 
-Change nothing else about the room — same furniture, same windows, same materials, same lighting. CRITICAL: keep the equirectangular projection exactly — full 360x180 sphere, floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text, no watermarks.`;
+Change NOTHING else: same camera, same framing, same surface and furniture, same background, same lighting, same colors everywhere outside the stone's immediate surroundings. Photorealistic. No people, no text, no watermarks.`;
 
 // Did the integration render keep the stone honest? Box it with a pointing
 // call (same 0-1000 [y,x] convention as detectSurface) and compare widths
-// against the sketch. Missing stone or >1.8x inflation trips the gate.
-async function sizeGate(pano, key, box, W) {
+// against the sketch geometry. Missing stone or >1.8x inflation trips the gate.
+async function sizeGate(crop, key, sketchFrac) {
   let txt;
   try {
-    // downscaled input — box coords are normalized, the upload isn't free
-    const small = await sharp(pano).resize(1280, 640, { fit: "fill" }).jpeg({ quality: 80 }).toBuffer();
     txt = await geminiText(key, [
-      { text: `This is an equirectangular interior panorama. A stone specimen is displayed near the horizontal center of the image — on a pedestal, plinth, table or the floor. Give the tight bounding box of the stone itself (not its stand). Answer with ONLY JSON: {"box_2d": [ymin, xmin, ymax, xmax]} with coordinates normalized to 0-1000. If no displayed stone is visible, answer {"box_2d": null}. No other text.` },
-      { inlineData: { mimeType: "image/jpeg", data: small.toString("base64") } },
+      { text: `A stone specimen is displayed on a surface near the center of this photo. Give the tight bounding box of the stone itself (not its stand or pedestal). Answer with ONLY JSON: {"box_2d": [ymin, xmin, ymax, xmax]} with coordinates normalized to 0-1000. If no stone is visible, answer {"box_2d": null}. No other text.` },
+      { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
     ], "size-gate");
   } catch (e) {
     // the gate itself failing is no evidence against the render — accept
@@ -353,10 +351,22 @@ async function sizeGate(pano, key, box, W) {
   const m = txt.match(/\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]/);
   if (!m) return { ok: false, reason: `stone missing (gate said: ${txt.slice(0, 80)})` };
   const widthFrac = (parseFloat(m[4]) - parseFloat(m[2])) / 1000;
-  const sketchFrac = box.pxW / W;
   const ratio = widthFrac / sketchFrac;
-  if (ratio > 1.8) return { ok: false, reason: `inflated ${ratio.toFixed(2)}x (sketch ${Math.round(sketchFrac * 1000)}‰ → render ${Math.round(widthFrac * 1000)}‰)` };
+  if (ratio > 1.8) return { ok: false, reason: `inflated ${ratio.toFixed(2)}x (sketch ${Math.round(sketchFrac * 1000)}‰ → render ${Math.round(widthFrac * 1000)}‰ of crop)` };
   return { ok: true, ratio };
+}
+
+// Feather a patch back into a base image so its rectangle never shows as a
+// tonal seam (shared by the integration recompose and the harmonize fallback).
+async function featherIn(base, patch, left, top, w, h) {
+  const F = Math.max(12, Math.round(Math.min(w, h) * 0.08)); // feather width
+  const maskSvg = Buffer.from(
+    `<svg width="${w}" height="${h}"><rect x="${F}" y="${F}" width="${w - 2 * F}" height="${h - 2 * F}" fill="white"/></svg>`);
+  const mask = await sharp(maskSvg).resize(w, h).blur(F / 2).extractChannel(0).raw().toBuffer();
+  const soft = await sharp(patch).resize(w, h, { fit: "fill" }).removeAlpha()
+    .joinChannel(mask, { raw: { width: w, height: h, channels: 1 } })
+    .png().toBuffer();
+  return sharp(base).composite([{ input: soft, left, top }]).jpeg({ quality: 95 }).toBuffer();
 }
 
 // Previous-generation finale, kept callable as the size-gate FALLBACK:
@@ -371,16 +381,7 @@ async function harmonizePaste(sketch, stonePng, box, W, H, key) {
     { text: `A small stone object sits on the surface at the center of this photo. Its colors are already matched to the room, but it lacks grounding: add the soft contact shadow it would cast on the surface beneath it, gentle ambient occlusion where it meets the surface, and a subtle reflection or light spill if the surface is glossy. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
     { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
   ], "embed-harmonize");
-  // feather the crop's borders so its rectangle never shows as a tonal seam
-  const cwI = Math.round(cw), chI = Math.round(ch);
-  const F = Math.max(12, Math.round(Math.min(cwI, chI) * 0.08)); // feather width
-  const maskSvg = Buffer.from(
-    `<svg width="${cwI}" height="${chI}"><rect x="${F}" y="${F}" width="${cwI - 2 * F}" height="${chI - 2 * F}" fill="white"/></svg>`);
-  const mask = await sharp(maskSvg).resize(cwI, chI).blur(F / 2).extractChannel(0).raw().toBuffer();
-  const back = await sharp(harmonized).resize(cwI, chI, { fit: "fill" }).removeAlpha()
-    .joinChannel(mask, { raw: { width: cwI, height: chI, channels: 1 } })
-    .png().toBuffer();
-  let pano = await sharp(sketch).composite([{ input: back, left: cl, top: ct }]).jpeg({ quality: 95 }).toBuffer();
+  const pano = await featherIn(sketch, harmonized, cl, ct, Math.round(cw), Math.round(ch));
   // size guard: the exact cutout goes back on top
   return sharp(pano).composite([{ input: stonePng, left: box.left, top: box.top }]).jpeg({ quality: 92 }).toBuffer();
 }
@@ -388,9 +389,9 @@ async function harmonizePaste(sketch, stonePng, box, W, H, key) {
 // Embed the stone INTO the room (reworked 2026-06-13 — embedded, not pasted):
 // 1. relight the cutout to the room's light (deterministic), feather its edge
 // 2. SKETCH: paste at the geometrically exact size — internal artifact only
-// 3. INTEGRATION RENDER: Gemini re-renders the whole pano with the stone truly
-//    in the scene, sketch as position/size reference, original photo as
-//    appearance reference
+// 3. INTEGRATION RENDER: Gemini re-renders a generous crop around the sketch
+//    box with the stone truly in the scene — sketch as position/size
+//    reference, original photo as appearance reference — feathered back in
 // 4. SIZE GATE: stone inflated >1.8x or missing → previous paste(+harmonize)
 //    path ships instead (harmonize only if the 60s budget still allows)
 // Local-harness debugging: DEBUG_DREAM=/some/dir dumps the internal artifacts
@@ -459,23 +460,47 @@ async function embedStone(jpeg, cutout, dimensions, scene, key, original, starte
     .toBuffer();
   await debugDump("sketch", sketch);
 
+  // INTEGRATION RENDER — on a generous crop, not the whole pano: a full-pano
+  // re-render couldn't hold a ~44px stone at size (2/2 runs inflated it 3-8x,
+  // 2026-06-13 — the model makes the subject prominent). In a crop the stone
+  // is a major subject, so "same size" is a constraint the model can honor.
+  // The crop is built at up to 4x scale so the model sees a SHARP stone (the
+  // cutout pasted at matching scale, not an upscaled paste), then the result
+  // comes back down and feathers into the pano — stone pixels stay
+  // model-generated (embedded), never the cutout's.
   let pano = null, path = "paste";
+  const cw = Math.round(Math.min(W, Math.max(box.pxW * 3.5, 220)));
+  const ch = Math.round(Math.min(H, Math.max(box.pxH * 3.5, 220)));
+  const cl = Math.max(0, Math.min(W - cw, Math.round(box.left + box.pxW / 2 - cw / 2)));
+  const ct = Math.max(0, Math.min(H - ch, Math.round(box.top + box.pxH / 2 - ch / 2)));
   try {
     const t0 = Date.now();
+    const up = Math.min(4, Math.max(1, Math.round(900 / cw))); // model-input scale
+    const roomCrop = await sharp(jpeg).extract({ left: cl, top: ct, width: cw, height: ch })
+      .resize(cw * up, ch * up, { kernel: "lanczos3" }).toBuffer();
+    const stoneUp = await sharp(cutout).resize(box.pxW * up, box.pxH * up, { fit: "fill" }).png().toBuffer();
+    const stoneUpLit = await relightCutout(stoneUp, jpeg, box, W, H).catch(() => stoneUp);
+    const sketchCrop = await sharp(roomCrop)
+      .composite([{ input: stoneUpLit, left: (box.left - cl) * up, top: (box.top - ct) * up }])
+      .jpeg({ quality: 92 }).toBuffer();
+    await debugDump("sketch-crop", sketchCrop);
     // appearance reference: original photo (cutout if missing), shrunk — it
     // only informs colors/banding/silhouette, full res is wasted upload
     const refSrc = original || cutout;
     const ref = await sharp(refSrc).resize(768, 768, { fit: "inside", withoutEnlargement: true }).png().toBuffer().catch(() => refSrc);
-    const integrated = await normalize(await gemini(key, [
+    const integratedCrop = await gemini(key, [
       { text: INTEGRATE_PROMPT },
-      { inlineData: { mimeType: "image/jpeg", data: sketch.toString("base64") } },
+      { inlineData: { mimeType: "image/jpeg", data: sketchCrop.toString("base64") } },
       { inlineData: { mimeType: "image/png", data: ref.toString("base64") } },
-    ], "integrate"));
-    await debugDump("integrated", integrated);
+    ], "integrate");
+    await debugDump("integrated-crop", integratedCrop);
     const tGate = Date.now();
-    const gate = await sizeGate(integrated, key, box, W);
+    const gate = await sizeGate(integratedCrop, key, box.pxW / cw);
     console.log(`integrate ${tGate - t0}ms, gate ${Date.now() - tGate}ms → ${gate.ok ? `OK (ratio ${gate.ratio?.toFixed(2) ?? "n/a"})` : `TRIPPED: ${gate.reason}`}`);
-    if (gate.ok) { pano = integrated; path = "integrated"; }
+    if (gate.ok) {
+      pano = await featherIn(jpeg, integratedCrop, cl, ct, cw, ch);
+      path = "integrated";
+    }
   } catch (e) {
     console.error("integration render failed → paste fallback:", e.message);
   }
