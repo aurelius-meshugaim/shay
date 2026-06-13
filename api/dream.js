@@ -623,6 +623,30 @@ module.exports = async (req, res) => {
     }
   }
 
+  // Email an ALREADY-SAVED dream by its id — the exact one the visitor watched
+  // and that got archived. No regeneration, so emailed == live == deep-linked.
+  if (req.body && req.body.emailExisting) {
+    const id = String(req.body.emailExisting), to = String(req.body.email || "").trim();
+    if (!/^[0-9a-f-]{36}$/.test(id)) { res.statusCode = 400; return res.json({ error: "Bad dream id." }); }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) { res.statusCode = 400; return res.json({ error: "That email doesn't look right." }); }
+    if (!process.env.RESEND_API_KEY || !process.env.SUPABASE_URL) { res.statusCode = 503; return res.json({ error: "Email delivery isn't set up." }); }
+    const h = { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` };
+    let row = null;
+    for (let i = 0; i < 8; i++) { // the image upload may still be finishing
+      row = await fetch(`${process.env.SUPABASE_URL}/rest/v1/dreams?id=eq.${id}&select=image,stone_id,description`, { headers: h })
+        .then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+      if (row && row.image) break;
+      await new Promise((ok) => setTimeout(ok, 1500));
+    }
+    if (!row || !row.image) { res.statusCode = 404; return res.json({ error: "That dream isn't ready yet — give it a moment and retry." }); }
+    let name = row.stone_id;
+    try { const sN = await fetch(`${process.env.SUPABASE_URL}/rest/v1/stones?id=eq.${row.stone_id}&select=name`, { headers: h }).then((r) => r.json()).then((a) => a[0]); if (sN?.name) name = sN.name; } catch {}
+    try {
+      await sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name, desc: row.description || "", dreamId: id, imageUrl: row.image });
+      return res.json({ ok: true });
+    } catch (e) { console.error("emailExisting failed:", e.message); res.statusCode = 502; return res.json({ error: "Couldn't send the email — try again." }); }
+  }
+
   const { stone = "flint", description = "", email = "" } = req.body || {};
   const desc = String(description).trim();
   if (desc.length < 3 || desc.length > 600) {
@@ -765,6 +789,7 @@ module.exports = async (req, res) => {
     res.setHeader("X-Stone-Dist", String(Math.round(dist * 100) / 100));
     res.setHeader("X-Stone-Surface-H", String(Math.round(surfaceH * 100) / 100)); // m — derived stand top
     if (embedded) res.setHeader("X-Stone-Embedded", "1"); // stone is IN the pixels → viewer skips its 3D billboard
+    if (dreamId) res.setHeader("X-Dream-Id", dreamId); // client emails/deep-links THIS saved dream
     res.end(pano);
     waitUntil(saveDream(pano).catch(() => {})); // archive the same embedded copy
     return;

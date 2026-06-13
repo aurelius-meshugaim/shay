@@ -520,8 +520,10 @@
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
         const old=dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
-        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), place };
+        const dreamId=r.headers.get('x-dream-id')||null;
+        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), place, dreamId };
         renderDreamResult();
+        if(pendingEmail && dreamId){ const a=pendingEmail; pendingEmail=null; sendSavedEmail(dreamId, a); }
         await openPano(blob, place);
       }catch(err){
         clearInterval(ticker); clearTimeout(emailTimer);
@@ -565,23 +567,27 @@
       renderDreamResult();
     }
 
+    let pendingEmail=null;
+    async function sendSavedEmail(dreamId, addr){
+      const box=document.getElementById('dreamEmail');
+      try{
+        const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ emailExisting:dreamId, email:addr }) });
+        const d=await r.json().catch(()=>({}));
+        box.innerHTML='<div class="dream-email-hint">'+
+          (r.ok ? 'Sent — the exact room you see is in your inbox. Tap the link there to step back inside anytime.'
+                : (d.error||'Email delivery is unavailable right now.'))+'</div>';
+      }catch(_){ box.innerHTML='<div class="dream-email-hint">Email delivery is unavailable right now.</div>'; }
+    }
     async function emailDream(e){
       if(e) e.stopPropagation();
       const addr=document.getElementById('dreamEmailAddr').value.trim(),
-            desc=document.getElementById('dreamDesc').value.trim(),
             box=document.getElementById('dreamEmail');
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return;
-      try{
-        const r=await fetch('/api/dream',{ method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ stone:activeStone.id, description:desc, email:addr }) });
-        const d=await r.json().catch(()=>({}));
-        box.innerHTML='<div class="dream-email-hint">'+
-          (r.ok ? 'On its way — check your inbox in a couple of minutes. You can keep waiting here too.'
-                : (d.error||'Email delivery is unavailable right now.'))+'</div>';
-      }catch(_){
-        box.innerHTML='<div class="dream-email-hint">Email delivery is unavailable right now.</div>';
-      }
+      const cur=activeStone && dreamResults[activeStone.id];
+      if(cur && cur.dreamId){ sendSavedEmail(cur.dreamId, addr); }      // dream done → send the saved one
+      else { pendingEmail=addr;                                          // still generating → send when it lands
+        box.innerHTML='<div class="dream-email-hint">We\u2019ll email you this exact room the moment it\u2019s ready.</div>'; }
     }
 
     // ---- 360 viewer (Three.js, lazy-loaded) ----
