@@ -2,7 +2,7 @@ name: Deploy to Vercel (production)
 
 # Auto-deploys shaym.beauty on every push to the `production` branch.
 # Requires one repo secret: VERCEL_TOKEN  (a Vercel token scoped to the
-# team that owns the `shay` project — team_aIlfKkoIVPPAUqsamcVnK2GV,
+# team that owns the `shay` project — team_WE0BMr5Lro0VezVlO1K1UbmK,
 # oria-ais-projects; the old aurelius team is deploy-blocked).
 # Org/project IDs below are not secrets — they identify the linked project.
 
@@ -19,8 +19,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      VERCEL_ORG_ID: team_aIlfKkoIVPPAUqsamcVnK2GV
-      VERCEL_PROJECT_ID: prj_MlYkUJoFS8Y1SN3khWevceR7eLIF
+      VERCEL_ORG_ID: team_WE0BMr5Lro0VezVlO1K1UbmK
+      VERCEL_PROJECT_ID: prj_EpjPospMLFjy1G1qRkr7K7nDsPKa
     steps:
       - uses: actions/checkout@v4
 
