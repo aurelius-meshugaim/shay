@@ -393,10 +393,18 @@ async function harmonizePaste(sketch, stonePng, box, W, H, key) {
 //    appearance reference
 // 4. SIZE GATE: stone inflated >1.8x or missing → previous paste(+harmonize)
 //    path ships instead (harmonize only if the 60s budget still allows)
+// Local-harness debugging: DEBUG_DREAM=/some/dir dumps the internal artifacts
+// (sketch, integration render) so a human can judge the stages. No-op on Vercel.
+async function debugDump(name, buf) {
+  if (!process.env.DEBUG_DREAM) return;
+  try { await sharp(buf).toFile(`${process.env.DEBUG_DREAM}/${Date.now() % 1e7}-${name}.jpg`); } catch {}
+}
+
 async function embedStone(jpeg, cutout, dimensions, scene, key, original, startedAt) {
   const { width: W, height: H } = await sharp(jpeg).metadata();
   let box = stoneBox(W, H, dimensions, scene);
   let lonDeg = 180, dist = scene.D;
+  const tD = Date.now();
   try {
     const s = await detectSurface(jpeg, key, W, H, scene);
     const surfaceH = scene.surfaceH;                       // m: derived stand top
@@ -441,6 +449,7 @@ async function embedStone(jpeg, cutout, dimensions, scene, key, original, starte
       };
     }
   } catch (e) { console.error("surface detect fell back to convention:", e.message); }
+  console.log(`detect: ${Date.now() - tD}ms`);
   const rawPng = await sharp(cutout).resize(box.pxW, box.pxH, { fit: "fill" }).png().toBuffer();
   const stonePng = await relightCutout(rawPng, jpeg, box, W, H).catch(() => rawPng);
   // the SKETCH: room + collaged stone at exact geometry — internal, never served
@@ -448,6 +457,7 @@ async function embedStone(jpeg, cutout, dimensions, scene, key, original, starte
     .composite([{ input: stonePng, left: box.left, top: box.top }])
     .jpeg({ quality: 95 })
     .toBuffer();
+  await debugDump("sketch", sketch);
 
   let pano = null, path = "paste";
   try {
@@ -461,6 +471,7 @@ async function embedStone(jpeg, cutout, dimensions, scene, key, original, starte
       { inlineData: { mimeType: "image/jpeg", data: sketch.toString("base64") } },
       { inlineData: { mimeType: "image/png", data: ref.toString("base64") } },
     ], "integrate"));
+    await debugDump("integrated", integrated);
     const tGate = Date.now();
     const gate = await sizeGate(integrated, key, box, W);
     console.log(`integrate ${tGate - t0}ms, gate ${Date.now() - tGate}ms → ${gate.ok ? `OK (ratio ${gate.ratio?.toFixed(2) ?? "n/a"})` : `TRIPPED: ${gate.reason}`}`);
