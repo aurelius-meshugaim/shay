@@ -84,8 +84,8 @@
     @keyframes rise {
       from { opacity: 0; transform: translateY(26px); filter: blur(6px); }
       to   { opacity: 1; transform: translateY(0);    filter: blur(0);   } }
-  
-    /* ---- lightbox gallery for the one ready stone ---- */
+
+    /* ---- lightbox gallery ---- */
     .lb { position: fixed; inset: 0; z-index: 10; display: none;
       align-items: center; justify-content: center; flex-direction: column;
       gap: clamp(.6rem,1.5vh,1rem); padding: 4vh 4vw;
@@ -168,7 +168,7 @@
       color:var(--c2); text-align:center; }
     .offer-msg.err { color:#ff9d9d; }
 
-    /* ---- "Your Home" dream slide (small + blurred, coming-soon) ---- */
+    /* ---- "Your Home" dream slide ---- */
     .lb-thumbs button.dream-thumb img { filter: blur(4px) brightness(.6); transform: scale(.86); }
     .dream-slide { position:absolute; inset:0; opacity:0; pointer-events:none;
       transition:opacity .4s ease; display:flex; align-items:center; justify-content:center; }
@@ -200,74 +200,6 @@
       color:var(--c2); }
     .dream-msg.err { color:#ff9d9d; font-style:normal; }
 
-    /* while building: the status words replace everything; the visitor's
-       prompt sinks blurred into the background */
-    .dream-slide.dreaming .dream-soon, .dream-slide.dreaming .dream-head,
-    .dream-slide.dreaming .dream-sub,  .dream-slide.dreaming .dream-go { display:none; }
-    .dream-slide.dreaming .dream-panel { justify-content:center; min-height:60%; }
-    /* the visitor's box stays the strong element, nudged up; the creation
-       wording sits above it, quieter */
-    .dream-slide.dreaming textarea { pointer-events:none; border-color:rgba(255,255,255,.22);
-      background:rgba(255,255,255,.09); }
-    .dream-slide.dreaming .dream-msg { order:-1; margin-bottom:.2rem;
-      font-size:clamp(.82rem,1.9vw,.98rem); font-weight:500; font-style:normal;
-      letter-spacing:.14em; text-transform:uppercase; color:rgba(255,255,255,.65);
-      text-shadow:0 1px 4px rgba(0,0,0,.7);
-      animation:buildPulse 2.8s ease-in-out infinite; }
-    @keyframes buildPulse { 0%,100%{opacity:.85;} 50%{opacity:.45;} }
-    .dream-slide.dreaming .dream-email { position:relative; z-index:1; }
-
-    /* after a dream: the slide becomes the room's photo — click to re-enter */
-    .lb-stage img.dream-result { position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; opacity:1; }
-    .dream-result[hidden], .dream-enter[hidden], .dream-again[hidden] { display:none; }
-    .dream-slide.has-result { cursor:pointer; }
-    .dream-slide.has-result .dream-panel { display:none; }
-    .dream-slide.has-result.dreaming .dream-panel { display:flex; position:relative; z-index:2;
-      background:rgba(4,6,9,.55); border-radius:14px; backdrop-filter:blur(4px); }
-    .dream-slide.has-result.dreaming .dream-enter,
-    .dream-slide.has-result.dreaming .dream-again { display:none; }
-    .dream-enter { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;
-      padding:.6rem 1.5rem; border-radius:999px; pointer-events:none;
-      font-size:.7rem; font-weight:600; letter-spacing:.3em; text-indent:.3em; text-transform:uppercase;
-      color:#fff; background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
-      border:1px solid rgba(255,255,255,.3); transition:opacity .3s; }
-    .dream-slide.has-result:hover .dream-enter { background:rgba(0,0,0,.7); }
-    .dream-again { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:1;
-      border:0; cursor:pointer; padding:.55rem 1.3rem; border-radius:999px; font-family:inherit;
-      font-size:.66rem; font-weight:600; letter-spacing:.22em; text-indent:.22em; text-transform:uppercase;
-      color:#06080b; background:linear-gradient(120deg,#fff,var(--c2) 70%,var(--c1));
-      box-shadow:0 6px 22px -6px rgba(0,0,0,.7); transition:transform .2s; }
-    .dream-again:hover { transform:translateX(-50%) translateY(-2px); }
-    .dream-email { display:flex; flex-direction:column; gap:.5rem;
-      animation:offerIn .35s cubic-bezier(0.16,1,0.3,1); }
-    .dream-email[hidden] { display:none; }
-    .dream-email-hint { font-size:.72rem; font-weight:300; color:rgba(255,255,255,.65); }
-    .dream-email-row { display:flex; gap:.5rem; }
-    .dream-email-row input { flex:1; padding:.5rem .75rem; border-radius:10px; font-family:inherit;
-      font-size:.85rem; color:#fff; border:1px solid rgba(255,255,255,.16);
-      background:rgba(255,255,255,.07); outline:none; }
-    .dream-email-row input:focus { border-color:var(--c2); }
-    .dream-email-go { border:0; cursor:pointer; padding:.5rem 1rem; border-radius:10px;
-      font-family:inherit; font-size:.68rem; font-weight:600; letter-spacing:.12em;
-      text-transform:uppercase; color:#06080b; background:linear-gradient(120deg,#fff,var(--c2)); }
-
-    /* ---- "Explore in 3D" button (appears after flat dream lands) ---- */
-    .explore3d-btn { position:absolute; bottom:42px; right:14px; z-index:2;
-      border:0; cursor:pointer; padding:.48rem 1rem; border-radius:999px; font-family:inherit;
-      font-size:.62rem; font-weight:600; letter-spacing:.18em; text-indent:.18em; text-transform:uppercase;
-      color:#fff; background:rgba(0,0,0,.5); backdrop-filter:blur(6px);
-      border:1px solid rgba(255,255,255,.25); transition:all .2s; white-space:nowrap; }
-    .explore3d-btn:hover { background:rgba(0,0,0,.75); border-color:rgba(255,255,255,.5); }
-    .explore3d-btn[hidden] { display:none; }
-    .explore3d-btn:disabled { opacity:.5; cursor:default; }
-    /* while the 3D world builds: a soft overlay message on the dream slide */
-    .world3d-building { position:absolute; bottom:42px; right:14px; z-index:2;
-      font-size:.62rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
-      color:rgba(255,255,255,.7); text-shadow:0 1px 3px rgba(0,0,0,.9);
-      animation:buildPulse 2.4s ease-in-out infinite; pointer-events:none; }
-    .world3d-building[hidden] { display:none; }
-
     /* ---- 360 panorama viewer ---- */
     .pano { position:fixed; inset:0; z-index:30; display:none; background:#06080b; }
     .pano.open { display:block; animation:lbIn .3s ease; }
@@ -287,22 +219,6 @@
       border-radius:50%; background:rgba(0,0,0,.45); color:#fff; font-size:1.5rem; cursor:pointer;
       display:flex; align-items:center; justify-content:center; z-index:2; }
     .pano-close:hover { background:rgba(0,0,0,.75); }
-    .pano-walk { position:absolute; bottom:56px; left:50%; transform:translateX(-50%);
-      z-index:2; border:0; cursor:pointer; padding:.65rem 1.6rem; border-radius:999px;
-      font-family:inherit; font-size:.74rem; font-weight:600; letter-spacing:.26em;
-      text-indent:.26em; text-transform:uppercase; color:#fff;
-      background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
-      border:1px solid rgba(255,255,255,.25); transition:all .2s; }
-    .pano-walk:hover { background:rgba(0,0,0,.75); border-color:rgba(255,255,255,.5); }
-    .pano-walk:disabled { opacity:.4; cursor:default; }
-    .pano-back { transform:translateX(calc(-50% - 8.5rem)); }
-    .pano-back[hidden] { display:none; }
-    .pano-building { position:absolute; inset:0; z-index:3; display:flex;
-      align-items:center; justify-content:center; background:rgba(4,6,9,.55);
-      backdrop-filter:blur(3px); font-size:clamp(1.05rem,2.8vw,1.5rem); font-weight:650;
-      letter-spacing:.03em; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,.85);
-      animation:buildPulse 2.4s ease-in-out infinite; }
-    .pano-building[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -325,11 +241,6 @@
     <div class="lb-stage" id="lbStage">
       <div class="dream-slide" id="dreamSlide">
         <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
-        <img class="dream-result" id="dreamResult" alt="Your room" hidden />
-        <div class="dream-enter" id="dreamEnter" hidden>step inside &mdash; 360&deg;</div>
-        <button class="dream-again" id="dreamAgain" hidden onclick="regenDream(event)">&#8635;&nbsp;dream it again</button>
-        <button class="explore3d-btn" id="explore3dBtn" hidden onclick="explore3D(event)" title="Build a 3D room with your stone on a pedestal — ~4 minutes">&#9655;&nbsp;Explore in 3D</button>
-        <div class="world3d-building" id="world3dBuilding" hidden>building your 3D room&hellip;</div>
         <div class="dream-panel">
           <div class="dream-soon">coming soon</div>
           <div class="dream-head">This stone, in your home</div>
@@ -337,13 +248,6 @@
           <textarea id="dreamDesc" maxlength="600" placeholder="Tall windows, late-afternoon sun, a worn leather armchair, my grandmother's rug&hellip;" onclick="event.stopPropagation()"></textarea>
           <button class="dream-go" id="dreamGo" onclick="startDream(event)">Dream it &mdash; 360&deg;</button>
           <div class="dream-msg" id="dreamMsg" role="status"></div>
-          <div class="dream-email" id="dreamEmail" hidden>
-            <div class="dream-email-hint">Takes about a minute &mdash; we can email it to you when it's ready.</div>
-            <div class="dream-email-row">
-              <input type="email" id="dreamEmailAddr" placeholder="you@example.com" onclick="event.stopPropagation()" />
-              <button class="dream-email-go" onclick="emailDream(event)">Email me</button>
-            </div>
-          </div>
         </div>
       </div>
       <button class="lb-nav prev" aria-label="Previous" onclick="lbGo(-1,event)">&#10094;</button>
@@ -375,10 +279,7 @@
   <div class="pano" id="pano" aria-modal="true" role="dialog" aria-label="360 view of the stone in your home">
     <div class="pano-title">your home &mdash; 360&deg;</div>
     <button class="pano-close" aria-label="Close 360 view" onclick="closePano()">&times;</button>
-    <button class="pano-walk" id="panoWalk" onclick="walkForward(event)" title="Walk three steps in the direction you're facing">&#8679;&nbsp;walk</button>
-    <button class="pano-walk pano-back" id="panoBack" hidden onclick="walkBack(event)" title="Step back to where you stood">&#8678;&nbsp;back</button>
-    <div class="pano-building" id="panoBuilding" hidden></div>
-    <div class="pano-hint">drag to look around &middot; walk to move</div>
+    <div class="pano-hint">drag to look around</div>
   </div>
 
   <script>
@@ -425,7 +326,6 @@
       els=[]; thumbs.innerHTML='';
       document.getElementById('lbTitle').textContent=s.name;
       dreamSlide.querySelector('.dream-bg').src=s.variants?.indoor?.src||s.original;
-      renderDreamResult();
       slides.forEach((v,i)=>{
         if(v.dream){ els.push(dreamSlide); }
         else {
@@ -446,25 +346,11 @@
       document.addEventListener('keydown',lbKey); }
     function closeLB(e){ if(e) e.stopPropagation(); lb.classList.remove('open'); document.removeEventListener('keydown',lbKey); }
 
-    // DB-backed source of truth (auction state included); manifest is the fallback
+    // DB-backed source of truth; manifest is the fallback
     fetch('/api/stones').then(r=>r.ok?r.json():Promise.reject())
       .then(d=>{ STONES=d.stones||[]; renderCards(); })
       .catch(()=>fetch('stones/manifest.json').then(r=>r.ok?r.json():[]).catch(()=>[])
         .then(d=>{ STONES=d; renderCards(); }));
-
-    // deep link from the "your dream is ready" email: open the saved 360 directly
-    const dreamParam=new URLSearchParams(location.search).get('dream');
-    if(dreamParam){
-      fetch('/api/dream?id='+encodeURIComponent(dreamParam))
-        .then(r=>r.ok?r.json():Promise.reject())
-        .then(d=>fetch(d.image)).then(r=>r.ok?r.blob():Promise.reject())
-        .then(blob=>{
-          activeStone=null;                                   // stone is baked into the archive copy
-          document.getElementById('panoWalk').hidden=true;    // archived view stays put (no live session state)
-          openPano(blob,null);
-        })
-        .catch(()=>{});
-    }
 
     // ---- offer ----
     function toggleOffer(e){ if(e) e.stopPropagation();
@@ -497,17 +383,15 @@
       } }
     function lbGo(d,e){ if(e) e.stopPropagation(); show(idx+d); }
     function lbKey(e){
-      if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;           // typing, not navigating
-      if(document.getElementById('pano').classList.contains('open')) return; // pano has its own Escape
+      if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+      if(document.getElementById('pano').classList.contains('open')) return;
       if(e.key==='Escape')closeLB(); else if(e.key==='ArrowRight')lbGo(1); else if(e.key==='ArrowLeft')lbGo(-1); }
-    lb.addEventListener('click', e=>{ if(e.target===lb) closeLB(); });   // click backdrop to close
+    lb.addEventListener('click', e=>{ if(e.target===lb) closeLB(); });
 
     // ---- dream: describe your home → Gemini 360 panorama ----
-    const DREAM_LINES = ["Reading your words…","Building your room…","Raising the walls…",
-                         "Opening up the space…","Pouring the light…","Placing the stone at the center…",
-                         "Stitching the horizon…","Smoothing the seams…","Almost there…"];
-    let dreaming=false, emailCapable=null, emailTimer=null;
-    fetch('/api/dream').then(r=>r.json()).then(c=>{ emailCapable=!!c.emailDelivery; }).catch(()=>{ emailCapable=false; });
+    const DREAM_LINES = ["Reading your words…","Raising the walls…","Pouring the light…",
+                         "Placing the stone…","Stitching the horizon…","Almost there…"];
+    let dreaming=false;
     async function startDream(e){
       if(e) e.stopPropagation();
       if(dreaming) return;
@@ -515,104 +399,28 @@
             msg=document.getElementById('dreamMsg'), go=document.getElementById('dreamGo');
       if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
       dreaming=true; go.disabled=true; msg.className='dream-msg';
-      dreamSlide.classList.add('dreaming');
-      nameEl.textContent=''; cap.textContent='';   // the creation wording replaces every other line
       let li=0; msg.textContent=DREAM_LINES[0];
-      const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 5000);
-      // after 5s of dreaming, offer email delivery (if the backend can send)
-      emailTimer=setTimeout(()=>{ if(dreaming && emailCapable) document.getElementById('dreamEmail').hidden=false; }, 5000);
+      const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 4000);
       try{
         const r=await fetch('/api/dream',{ method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ stone:activeStone.id, description:desc }) });
+          body:JSON.stringify({ stone:activeStone?activeStone.id:'flint', description:desc }) });
         if(!r.ok){
           let m='The dream engine is unavailable right now.';
           try{ m=(await r.json()).error || m; }catch(_){}
           throw new Error(m);
         }
         const blob=await r.blob();
-        const place={ lon:parseFloat(r.headers.get('x-stone-lon'))||180,
-                      dist:parseFloat(r.headers.get('x-stone-dist'))||0,
-                      surfaceH:parseFloat(r.headers.get('x-stone-surface-h')), // NaN → derived fallback
-                      embedded:r.headers.get('x-stone-embedded')==='1' };       // stone baked into the pixels
-        clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
-        document.getElementById('dreamEmail').hidden=true;
-        const old=dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
-        const dreamId=r.headers.get('x-dream-id')||null;
-        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), place, dreamId };
-        renderDreamResult();
-        if(pendingEmail && dreamId){ const a=pendingEmail; pendingEmail=null; sendSavedEmail(dreamId, a); }
-        await openPano(blob, place);
+        clearInterval(ticker); msg.textContent='';
+        await openPano(URL.createObjectURL(blob));
       }catch(err){
-        clearInterval(ticker); clearTimeout(emailTimer);
+        clearInterval(ticker);
         msg.textContent=err.message||'Something went wrong — try again.';
         msg.className='dream-msg err';
-      }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); show(idx); }
-    }
-    // ---- dream result memory: the slide becomes the room photo (re-enter + regenerate)
-    const dreamResults={}; // stoneId → {blob, desc, url}
-    function renderDreamResult(){
-      const r=activeStone&&dreamResults[activeStone.id];
-      dreamSlide.classList.toggle('has-result',!!r);
-      document.getElementById('dreamResult').hidden=!r;
-      document.getElementById('dreamEnter').hidden=!r;
-      document.getElementById('dreamAgain').hidden=!r;
-      // "Explore in 3D": show when there's a result AND the stone has a GLB
-      const has3d = !!(r && activeStone && activeStone.model_glb);
-      document.getElementById('explore3dBtn').hidden = !has3d;
-      const tb=thumbs.querySelector('.dream-thumb img');
-      if(r){
-        document.getElementById('dreamResult').src=r.url;
-        if(tb) tb.src=r.url;
-      } else if(tb&&activeStone){
-        tb.src=activeStone.variants?.blur?.src||activeStone.original;
-      }
-    }
-    dreamSlide.addEventListener('click',(e)=>{
-      if(!dreamSlide.classList.contains('has-result')||dreaming) return;
-      if(e.target.closest('.dream-again')||e.target.closest('.dream-email')) return;
-      e.stopPropagation();
-      const r=dreamResults[activeStone.id];
-      if(r) openPano(r.blob, r.place);
-    });
-    function regenDream(e){
-      if(e) e.stopPropagation();
-      if(dreaming) return;
-      // full revert: as if no dream happened — fresh form, empty words
-      const r=dreamResults[activeStone.id];
-      if(r){ URL.revokeObjectURL(r.url); delete dreamResults[activeStone.id]; }
-      document.getElementById('dreamDesc').value='';
-      document.getElementById('dreamMsg').textContent='';
-      document.getElementById('dreamMsg').className='dream-msg';
-      document.getElementById('dreamEmail').hidden=true;
-      renderDreamResult();
-    }
-
-    let pendingEmail=null;
-    async function sendSavedEmail(dreamId, addr){
-      const box=document.getElementById('dreamEmail');
-      try{
-        const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ emailExisting:dreamId, email:addr }) });
-        const d=await r.json().catch(()=>({}));
-        box.innerHTML='<div class="dream-email-hint">'+
-          (r.ok ? 'Sent — the exact room you see is in your inbox. Tap the link there to step back inside anytime.'
-                : (d.error||'Email delivery is unavailable right now.'))+'</div>';
-      }catch(_){ box.innerHTML='<div class="dream-email-hint">Email delivery is unavailable right now.</div>'; }
-    }
-    async function emailDream(e){
-      if(e) e.stopPropagation();
-      const addr=document.getElementById('dreamEmailAddr').value.trim(),
-            box=document.getElementById('dreamEmail');
-      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return;
-      const cur=activeStone && dreamResults[activeStone.id];
-      if(cur && cur.dreamId){ sendSavedEmail(cur.dreamId, addr); }      // dream done → send the saved one
-      else { pendingEmail=addr;                                          // still generating → send when it lands
-        box.innerHTML='<div class="dream-email-hint">We\u2019ll email you this exact room the moment it\u2019s ready.</div>'; }
+      }finally{ dreaming=false; go.disabled=false; }
     }
 
     // ---- 360 viewer (Three.js, lazy-loaded) ----
-    const PANO_INIT_LON=180; // calibrated so the opening view faces the stone (image center)
     const pano=document.getElementById('pano');
     let three=null, panoState=null;
     function loadThree(){
@@ -626,17 +434,13 @@
       });
       return three;
     }
-    function loadTex(url){
-      return new Promise((ok,fail)=>{
-        new THREE.TextureLoader().load(url, t=>{ t.colorSpace=THREE.SRGBColorSpace; ok(t); },
-          undefined, ()=>fail(new Error('Could not read the panorama.')));
-      });
-    }
-    async function openPano(blob, place){
+    async function openPano(url){
       await loadThree();
-      const url=URL.createObjectURL(blob);
-      const tex=await loadTex(url);
-      const img=tex.image, coverage=Math.min(1, (2*img.height)/img.width); // 2:1 = full sphere
+      const tex=await new Promise((ok,fail)=>{
+        new THREE.TextureLoader().load(url, ok, undefined, ()=>fail(new Error('Could not read the panorama.')));
+      });
+      tex.colorSpace=THREE.SRGBColorSpace;
+      const img=tex.image, coverage=Math.min(1, (2*img.height)/img.width);
       const renderer=new THREE.WebGLRenderer({antialias:true});
       renderer.setPixelRatio(Math.min(devicePixelRatio,2));
       renderer.setSize(innerWidth,innerHeight);
@@ -645,72 +449,10 @@
       const cam=new THREE.PerspectiveCamera(75, innerWidth/innerHeight, .1, 100);
       const geo=new THREE.SphereGeometry(50, 64, 48,
         0, Math.PI*2, Math.PI*(1-coverage)/2, Math.PI*coverage);
-      geo.scale(-1,1,1); // view from inside
-      const mat=new THREE.MeshBasicMaterial({map:tex});
-      scene.add(new THREE.Mesh(geo, mat));
+      geo.scale(-1,1,1);
+      scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({map:tex})));
       const maxLat=Math.max(15, coverage*85);
-      let lon=(place&&place.lon)||PANO_INIT_LON, lat=0, vlon=0, vlat=0, drag=null, raf=0;
-      window.panoYaw=(l,t)=>{ lon=l; if(t!==undefined) lat=t; }; // test/calibration hook
-
-      // ---- the stone as a 3D layer (same object, sharp, true size, every angle) ----
-      // World units = meters; camera eye at y=0 (1.6m above floor). The room is
-      // a backdrop sphere; the stone is the photo's cutout at its real
-      // dimensions, placed by the same convention the server prompts for.
-      const yawDir=(deg)=>{ const t=THREE.MathUtils.degToRad(deg);
-        return new THREE.Vector3(Math.cos(t),0,Math.sin(t)); };
-      const camPos=new THREE.Vector3(0,0,0); let panoNorth=180, stone=null, stoneWorld=null;
-      // X-Stone-Embedded: the server baked the stone into the pano pixels
-      // (integration render or paste fallback — both contain it), so the 3D
-      // billboard would double the stone. Kept for legacy/bare panos only.
-      if(activeStone&&activeStone.cutout&&!(place&&place.embedded)){
-        const d=activeStone.dimensions||{};
-        const big=Math.max(d.width_cm||0,d.height_cm||0,d.depth_cm||0)>=40;
-        const wcm=d.width_cm||d.height_cm||d.depth_cm||14, hcm=d.height_cm||wcm*0.7;
-        // bottom-up scale chain — mirrors sceneFromStone() in api/dream.js (keep in sync):
-        // stand from stone (contemplation height ~1.25m), camera from stone (~7.5° presence)
-        const standH=big?(hcm<70?0.10:0):Math.min(1.10,Math.max(0.60,1.25-hcm/200));
-        const dDef=Math.round(Math.min(3.5,Math.max(0.9,(wcm/200)/Math.tan(3.75*Math.PI/180)))*20)/20;
-        const surfaceH=(place&&isFinite(place.surfaceH))?place.surfaceH:standH;
-        const D=(place&&place.dist)||dDef, centerY=surfaceH+hcm/200-1.6;
-        const stoneLon=(place&&place.lon)||180;
-        new THREE.TextureLoader().load(activeStone.cutout,(t)=>{
-          t.colorSpace=THREE.SRGBColorSpace;
-          t.anisotropy=renderer.capabilities.getMaxAnisotropy();
-          const aspect=t.image.width/t.image.height, hM=hcm/100;
-          const m=new THREE.MeshBasicMaterial({map:t,transparent:true,side:THREE.DoubleSide});
-          // relight the billboard to the room: sample the pano around the
-          // stone's spot and adopt its color cast (mirrors relightCutout server-side)
-          try{
-            const pi=tex.image, c=document.createElement('canvas');
-            const px=Math.round(stoneLon/360*pi.width);
-            const pitch=Math.atan((1.6-(surfaceH+hcm/200))/D);
-            const py=Math.round(pi.height/2+(pitch/Math.PI)*pi.height);
-            const S=Math.max(24,Math.round(pi.width*0.02));
-            c.width=S; c.height=S;
-            c.getContext('2d').drawImage(pi, px-S/2, py-S/2, S, S, 0, 0, S, S);
-            const data=c.getContext('2d').getImageData(0,0,S,S).data;
-            let r=0,g=0,b=0,n=0;
-            for(let i=0;i<data.length;i+=4){ r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; }
-            r/=n; g/=n; b/=n;
-            const lum=0.299*r+0.587*g+0.114*b, K=0.65;
-            const bright=Math.min(1.1,Math.max(0.7,lum/170));
-            const f=(ch)=>Math.min(1.25,Math.max(0.6,(1+K*(ch/Math.max(1,lum)-1))*bright));
-            m.color.setRGB(f(r),f(g),f(b));
-          }catch(_){ /* cross-origin or decode hiccup — unlit fallback */ }
-          stone=new THREE.Mesh(new THREE.PlaneGeometry(hM*aspect,hM),m);
-          stoneWorld=yawDir(stoneLon).multiplyScalar(D).setY(centerY);
-          scene.add(stone); placeStone();
-        });
-      }
-      function placeStone(){
-        if(!stone) return;
-        const rel=stoneWorld.clone().sub(camPos);
-        const wy=THREE.MathUtils.radToDeg(Math.atan2(rel.z,rel.x));
-        const localLon=180+(wy-panoNorth);
-        const p=yawDir(localLon).multiplyScalar(Math.hypot(rel.x,rel.z)).setY(rel.y);
-        stone.position.copy(p);
-        stone.lookAt(0,p.y,0); // camera stays at origin; billboard horizontally
-      }
+      let lon=0, lat=0, vlon=0, vlat=0, drag=null, raf=0;
       function frame(){
         raf=requestAnimationFrame(frame);
         if(!drag){ lon+=vlon; lat+=vlat; vlon*=.93; vlat*=.93; }
@@ -726,188 +468,23 @@
         vlon=nl-lon; vlat=nt-lat; lon=nl; lat=nt; };
       el.addEventListener('pointerdown',e=>{ el.setPointerCapture(e.pointerId); down(e.clientX,e.clientY); });
       el.addEventListener('pointermove',e=>move(e.clientX,e.clientY));
-      el.addEventListener('pointerup',()=>{ drag=null; schedulePrefetch(); });
+      el.addEventListener('pointerup',()=>{ drag=null; });
       el.addEventListener('wheel',e=>{ e.preventDefault();
         cam.fov=Math.max(40,Math.min(95,cam.fov+e.deltaY*.04)); cam.updateProjectionMatrix(); },{passive:false});
       const onResize=()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
         renderer.setSize(innerWidth,innerHeight); };
       addEventListener('resize',onResize);
-      panoState={
-        blob,
-        getYaw:()=>((lon%360)+360)%360,
-        async swap(newBlob, yawAtStep){
-          const u=URL.createObjectURL(newBlob), t=await loadTex(u);
-          const old=mat.map; mat.map=t; mat.needsUpdate=true; old.dispose(); URL.revokeObjectURL(u);
-          panoState.blob=newBlob;
-          if(yawAtStep!==undefined){           // a walk: camera moved 3m toward yawAtStep
-            const worldYaw=panoNorth+(yawAtStep-180);
-            camPos.add(yawDir(worldYaw).multiplyScalar(3));
-            panoNorth=((worldYaw%360)+360)%360;
-            placeStone();
-          }
-          lon=180; lat=0; vlon=vlat=0;
-        },
-        stepBack(prevBlob, prevCam, prevNorth){ camPos.copy(prevCam); panoNorth=prevNorth; placeStone(); return panoState.swap(prevBlob); },
-        snapshot(){ return { cam:camPos.clone(), north:panoNorth }; },
-        destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
-          renderer.dispose(); mat.map.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
+      panoState={ destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
+        renderer.dispose(); tex.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
       pano.classList.add('open'); frame();
-      schedulePrefetch();
     }
     function closePano(){
       pano.classList.remove('open');
-      document.getElementById('panoBuilding').hidden=true;
-      document.getElementById('panoBack').hidden=true;
-      document.getElementById('panoWalk').hidden=false;   // restore after dream-view mode
       if(panoState){ panoState.destroy(); panoState=null; }
-      walking=false; panoHistory=[];
-      prefetch=null; clearTimeout(prefetchTimer);
     }
-
-    // ---- street-view walking + speculative prefetch ----
-    const WALK_LINES=["Taking three steps&hellip;","Keeping every detail in place&hellip;","Looking around&hellip;"];
-    let walking=false, panoHistory=[];
-    let prefetch=null, prefetchTimer=null, prefetchBusy=false;
-    const blobB64=(blob)=>new Promise((ok,fail)=>{ const fr=new FileReader();
-      fr.onload=()=>ok(fr.result.split(',')[1]); fr.onerror=fail; fr.readAsDataURL(blob); });
-    const angDiff=(a,b)=>((a-b+540)%360)-180;
-    async function walkCall(blob,yaw){
-      const r=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ walk:true, pano:await blobB64(blob), yawDeg:yaw }) });
-      if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||"Couldn't take that step."); }
-      return r.blob();
-    }
-    // While the visitor lingers facing one way, quietly pre-walk that way —
-    // most walk clicks then land instantly.
-    function schedulePrefetch(){ clearTimeout(prefetchTimer); prefetchTimer=setTimeout(doPrefetch, 4000); }
-    async function doPrefetch(){
-      if(!panoState||walking||prefetchBusy) return;
-      const yaw=panoState.getYaw();
-      if(prefetch&&prefetch.src===panoState.blob&&Math.abs(angDiff(prefetch.yaw,yaw))<20) return;
-      prefetchBusy=true;
-      const src=panoState.blob;
-      try{
-        const blob=await walkCall(src,yaw);
-        if(panoState&&panoState.blob===src) prefetch={src,yaw,blob};
-      }catch(_){ /* speculative — silent */ }
-      finally{ prefetchBusy=false; if(panoState&&!walking) schedulePrefetch(); }
-    }
-    async function walkForward(e){
-      if(e) e.stopPropagation();
-      if(walking||!panoState) return;
-      walking=true;
-      const btn=document.getElementById('panoWalk'), ov=document.getElementById('panoBuilding');
-      btn.disabled=true;
-      const yaw=panoState.getYaw();
-      const hit=prefetch&&prefetch.src===panoState.blob&&Math.abs(angDiff(prefetch.yaw,yaw))<20;
-      let tick=null;
-      if(!hit){ ov.hidden=false; let wi=0; ov.innerHTML=WALK_LINES[0];
-        tick=setInterval(()=>{ ov.innerHTML=WALK_LINES[++wi%WALK_LINES.length]; }, 6000); }
-      try{
-        const stepBlob=hit?prefetch.blob:await walkCall(panoState.blob,yaw);
-        const stepYaw=hit?prefetch.yaw:yaw;
-        panoHistory.push({ blob:panoState.blob, ...panoState.snapshot() });
-        prefetch=null;
-        await panoState.swap(stepBlob, stepYaw);
-        document.getElementById('panoBack').hidden=false;
-        schedulePrefetch();
-      }catch(err){
-        ov.hidden=false; ov.innerHTML=err.message; await new Promise(ok=>setTimeout(ok,2200));
-      }finally{
-        if(tick) clearInterval(tick); ov.hidden=true; btn.disabled=false; walking=false;
-      }
-    }
-    async function walkBack(e){
-      if(e) e.stopPropagation();
-      if(walking||!panoState||!panoHistory.length) return;
-      const prev=panoHistory.pop();
-      prefetch=null;
-      await panoState.stepBack(prev.blob, prev.cam, prev.north);   // instant — no generation
-      if(!panoHistory.length) document.getElementById('panoBack').hidden=true;
-      schedulePrefetch();
-    }
-    // capture phase + stopPropagation so one Escape closes only the pano,
-    // not the lightbox underneath it
     document.addEventListener('keydown', e=>{
       if(e.key==='Escape' && pano.classList.contains('open')){ e.stopPropagation(); closePano(); }
     }, true);
-
-    // ---- "Explore in 3D" — Marble 3D world builder ----
-    // The flat 360 dream is the default and stays untouched.
-    // This is a purely additive opt-in path: POST /api/world → poll GET → open orbit.html.
-    const WORLD_LINES = [
-      "Building your room in 3D…",
-      "Sculpting walls and light…",
-      "Placing the stone on its pedestal…",
-      "Almost there… (~4 min total)",
-    ];
-    let building3d = false, worldPollTimer = null;
-
-    async function explore3D(e) {
-      if (e) e.stopPropagation();
-      if (building3d || !activeStone) return;
-      const result = activeStone && dreamResults[activeStone.id];
-      if (!result) return;
-
-      building3d = true;
-      const btn = document.getElementById('explore3dBtn');
-      const bld = document.getElementById('world3dBuilding');
-      btn.hidden = true;
-      bld.hidden = false;
-
-      let li = 0; bld.textContent = WORLD_LINES[0];
-      const ticker = setInterval(() => { bld.textContent = WORLD_LINES[++li % WORLD_LINES.length]; }, 18000);
-
-      try {
-        // POST — kick off world generation
-        const postR = await fetch('/api/world', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stone: activeStone.id, description: result.desc }),
-        });
-        if (!postR.ok) {
-          const d = await postR.json().catch(() => ({}));
-          throw new Error(d.error || 'World generation failed.');
-        }
-        const { operation_id } = await postR.json();
-
-        // Poll GET until ready
-        const t0 = Date.now();
-        const MAX_WAIT = 8 * 60 * 1000; // 8 min hard cap
-        while (Date.now() - t0 < MAX_WAIT) {
-          await new Promise(ok => setTimeout(ok, 10000)); // poll every 10s
-          const pollR = await fetch('/api/world?op=' + encodeURIComponent(operation_id));
-          if (!pollR.ok) continue;
-          const d = await pollR.json();
-          if (d.status === 'ready') {
-            clearInterval(ticker);
-            // open orbit.html in same tab (back button returns here)
-            const orbitUrl = '/orbit.html?world=' + encodeURIComponent(d.spz) +
-              '&stone=' + encodeURIComponent(d.glb || activeStone.model_glb || '');
-            window.location.href = orbitUrl;
-            return;
-          }
-          if (d.status === 'error') throw new Error(d.message || 'World generation failed.');
-          // pending — keep polling
-          if (d.progress != null) {
-            bld.textContent = `Building your 3D room… ${Math.round(d.progress)}%`;
-          }
-        }
-        throw new Error('3D world timed out — try again.');
-      } catch (err) {
-        clearInterval(ticker);
-        bld.textContent = err.message || '3D world unavailable — try again.';
-        setTimeout(() => {
-          if (!building3d) return;
-          bld.hidden = true;
-          btn.hidden = false;
-          building3d = false;
-        }, 3500);
-        return;
-      } finally {
-        clearInterval(ticker);
-      }
-    }
   </script>
 </body>
 </html>
