@@ -1,47 +1,27 @@
-// POST /api/dream  { stone: "flint", description: "..." }
-// → image/jpeg: a 360° equirectangular panorama of the visitor's described
-//   home with the actual stone (its original photo) staged inside it.
+// POST /api/dream  { stone, description }           → image/jpeg panorama + X-Dream-Id header
+// POST /api/dream  { emailExisting, email }         → { ok:true }  (email the saved dream)
+// GET  /api/dream                                    → { emailDelivery: bool }
+// GET  /api/dream?id=<uuid>                         → { image, stone_id, description }
 //
-// Backbone: gemini-3.1-flash-image (same model as pipeline/run.mjs), image+text
-// conditioning — the stone photo rides along so the real stone appears, which
-// is why this is Gemini and not a text-only skybox service.
-// Key: GEMINI_AI_STUDIO in the Vercel project env (mirrors Doppler oria/dev).
+// Simple one-shot pipeline: Gemini generates the equirectangular 360° pano with
+// the stone staged inside. On success the pano is saved to Supabase storage and a
+// dreams row is created (or patched) — the same URL powers both the in-page result
+// slide and the deep-link from the email.
 
 const IMAGE_MODEL = "gemini-3.1-flash-image";
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 
-module.exports = async (req, res) => {
-  if (req.method !== "POST") {
-    res.statusCode = 405;
-    return res.json({ error: "POST only" });
-  }
-  const KEY = process.env.GEMINI_AI_STUDIO;
-  if (!KEY) {
-    res.statusCode = 500;
-    return res.json({ error: "GEMINI_AI_STUDIO is not configured" });
-  }
+// ---- rate limiter (per-instance only) ----
+const hits = new Map();
+const RL_MAX = 30, RL_WIN = 60 * 60 * 1000;
+function limited(ip) {
+  const now = Date.now(), arr = (hits.get(ip) || []).filter((t) => now - t < RL_WIN);
+  arr.push(now); hits.set(ip, arr);
+  return arr.length > RL_MAX;
+}
 
-  const { stone = "flint", description = "" } = req.body || {};
-  const desc = String(description).trim();
-  if (desc.length < 3 || desc.length > 600) {
-    res.statusCode = 400;
-    return res.json({ error: "Describe your home in 3–600 characters." });
-  }
-  if (!/^[a-z0-9-]+$/.test(stone)) {
-    res.statusCode = 400;
-    return res.json({ error: "Unknown stone." });
-  }
-
-  // The stone's original photo lives in this same deployment as a static asset.
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const stoneUrl = `${proto}://${req.headers.host}/stones/${stone}/original.jpg`;
-  const stoneRes = await fetch(stoneUrl);
-  if (!stoneRes.ok) {
-    res.statusCode = 400;
-    return res.json({ error: "Unknown stone." });
-  }
-  const stoneB64 = Buffer.from(await stoneRes.arrayBuffer()).toString("base64");
-
+// ---- generate the pano via Gemini ----
+async function generatePano({ key, stoneB64, desc }) {
   const prompt = `Create a single seamless 360-degree equirectangular panorama (full horizontal wrap: the left and right edges must continue into each other).
 
 The scene — the visitor's own home, as they describe it: ${desc}
@@ -62,7 +42,7 @@ Style: photorealistic, warm inviting light, the home feels lived-in and personal
   };
 
   for (let attempt = 1; ; attempt++) {
-    const r = await fetch(`${API}/${IMAGE_MODEL}:generateContent?key=${KEY}`, {
+    const r = await fetch(`${API}/${IMAGE_MODEL}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -71,20 +51,190 @@ Style: photorealistic, warm inviting light, the home feels lived-in and personal
       await new Promise((ok) => setTimeout(ok, attempt * 4000));
       continue;
     }
-    if (!r.ok) {
-      res.statusCode = 502;
-      return res.json({ error: `Generation failed (HTTP ${r.status}). Try again in a moment.` });
-    }
+    if (!r.ok) throw new Error(`Generation failed (HTTP ${r.status})`);
     const data = await r.json();
     const img = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
     if (!img) {
-      res.statusCode = 502;
-      return res.json({ error: "The model returned no image. Try rephrasing your description." });
+      if (attempt <= 2) continue;
+      throw new Error("The model returned no image.");
     }
-    const buf = Buffer.from(img.inlineData.data, "base64");
+    return Buffer.from(img.inlineData.data, "base64");
+  }
+}
+
+// ---- Supabase helpers ----
+function sbHeaders(key) {
+  return { apikey: key, Authorization: `Bearer ${key}` };
+}
+
+// Insert a dreams row, upload the pano to storage, patch the image URL back.
+// Returns the dreamId (UUID). Best-effort — errors are swallowed.
+async function saveDream({ supabaseUrl, supabaseKey, stone, desc, ip, jpeg }) {
+  if (!supabaseUrl || !supabaseKey) return null;
+  const h = sbHeaders(supabaseKey);
+  // insert row
+  const row = await fetch(`${supabaseUrl}/rest/v1/dreams`, {
+    method: "POST",
+    headers: { ...h, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify({ stone_id: stone, description: desc, ip }),
+  }).then((r) => (r.ok ? r.json() : [])).then((a) => a[0] || null).catch(() => null);
+  if (!row) return null;
+  const id = row.id;
+  // upload image
+  const up = await fetch(`${supabaseUrl}/storage/v1/object/stones/dreams/${id}.jpg`, {
+    method: "POST",
+    headers: { ...h, "Content-Type": "image/jpeg", "x-upsert": "true" },
+    body: jpeg,
+  }).catch(() => null);
+  if (!up || !up.ok) return id; // row exists but no image; still return id
+  const imageUrl = `${supabaseUrl}/storage/v1/object/public/stones/dreams/${id}.jpg`;
+  // patch image URL
+  await fetch(`${supabaseUrl}/rest/v1/dreams?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { ...h, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ image: imageUrl }),
+  }).catch(() => {});
+  return id;
+}
+
+// ---- email delivery ----
+const { stoneEmail, send: sendMail } = require("./_email.js");
+
+async function sendDreamEmail({ resendKey, to, name, desc, dreamId, imageUrl }) {
+  const viewUrl = dreamId ? `https://shaym.beauty/?dream=${dreamId}` : "https://shaym.beauty";
+  return sendMail({
+    resendKey,
+    to,
+    subject: `${name} — in your home, in 360°`,
+    html: stoneEmail({
+      preheader: `Your dream is ready — ${name}, at home with you.`,
+      heading: "Your dream is ready",
+      intro: `<em>"${desc.replace(/&/g, "&amp;").replace(/</g, "&lt;")}"</em><br/><br/>` +
+        `<strong style="color:#fff">${name}</strong> is standing in your room. Step inside and look around.`,
+      image: imageUrl || null,
+      rows: [{ label: "Stone", value: name }],
+      cta: { label: "See it in 360°", url: viewUrl },
+    }),
+  });
+}
+
+module.exports = async (req, res) => {
+  // ---- GET ----
+  if (req.method === "GET") {
+    const id = (req.query && req.query.id) || "";
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+    if (id && /^[0-9a-f-]{36}$/.test(id) && SUPABASE_URL && SUPABASE_KEY) {
+      const h = sbHeaders(SUPABASE_KEY);
+      const row = await fetch(
+        `${SUPABASE_URL}/rest/v1/dreams?id=eq.${id}&select=image,stone_id,description`,
+        { headers: h }
+      ).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+      if (!row || !row.image) { res.statusCode = 404; return res.json({ error: "Dream not found." }); }
+      res.setHeader("Cache-Control", "s-maxage=3600");
+      return res.json(row);
+    }
+    return res.json({ emailDelivery: !!process.env.RESEND_API_KEY });
+  }
+
+  if (req.method !== "POST") {
+    res.statusCode = 405;
+    return res.json({ error: "POST only" });
+  }
+
+  const KEY = process.env.GEMINI_AI_STUDIO;
+  if (!KEY) {
+    res.statusCode = 500;
+    return res.json({ error: "GEMINI_AI_STUDIO is not configured" });
+  }
+
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+
+  const body = req.body || {};
+
+  // ---- emailExisting branch: re-deliver a saved dream without regenerating ----
+  if (body.emailExisting) {
+    const { emailExisting: dreamId, email: to } = body;
+    if (!/^[0-9a-f-]{36}$/.test(dreamId)) {
+      res.statusCode = 400; return res.json({ error: "Invalid dream id." });
+    }
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to).trim())) {
+      res.statusCode = 400; return res.json({ error: "Valid email required." });
+    }
+    if (!RESEND_KEY) {
+      res.statusCode = 503; return res.json({ error: "Email delivery isn't set up." });
+    }
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      res.statusCode = 503; return res.json({ error: "Storage not configured." });
+    }
+    const h = sbHeaders(SUPABASE_KEY);
+    const row = await fetch(
+      `${SUPABASE_URL}/rest/v1/dreams?id=eq.${dreamId}&select=image,stone_id,description,stones(name)`,
+      { headers: h }
+    ).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+    if (!row || !row.image) {
+      res.statusCode = 404; return res.json({ error: "Dream not found." });
+    }
+    const name = (row.stones && row.stones.name) || row.stone_id || "Stone";
+    try {
+      await sendDreamEmail({
+        resendKey: RESEND_KEY, to: String(to).trim(),
+        name, desc: row.description || "", dreamId, imageUrl: row.image,
+      });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("emailExisting failed:", e.message);
+      res.statusCode = 502; return res.json({ error: "Email delivery failed." });
+    }
+  }
+
+  // ---- main dream generation ----
+  const ip = (req.headers["x-forwarded-for"] || "?").split(",")[0].trim();
+  if (limited(ip)) {
+    res.statusCode = 429;
+    return res.json({ error: "The dream engine needs a breather — try again in a little while." });
+  }
+
+  const { stone = "flint", description = "" } = body;
+  const desc = String(description).trim();
+  if (desc.length < 3 || desc.length > 600) {
+    res.statusCode = 400;
+    return res.json({ error: "Describe your home in 3–600 characters." });
+  }
+  if (!/^[a-z0-9-]+$/.test(stone)) {
+    res.statusCode = 400;
+    return res.json({ error: "Unknown stone." });
+  }
+
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const stoneUrl = `${proto}://${req.headers.host}/stones/${stone}/original.jpg`;
+  const stoneRes = await fetch(stoneUrl);
+  if (!stoneRes.ok) {
+    res.statusCode = 400;
+    return res.json({ error: "Unknown stone." });
+  }
+  const stoneB64 = Buffer.from(await stoneRes.arrayBuffer()).toString("base64");
+
+  try {
+    const jpeg = await generatePano({ key: KEY, stoneB64, desc });
+
+    // Save dream inline so we get the id for the response header.
+    // waitUntil ensures Vercel keeps the function alive if the response flushes first.
+    const dreamId = await saveDream({
+      supabaseUrl: SUPABASE_URL, supabaseKey: SUPABASE_KEY, stone, desc, ip, jpeg,
+    }).catch(() => null);
+
     res.statusCode = 200;
-    res.setHeader("Content-Type", img.inlineData.mimeType || "image/jpeg");
+    res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
-    return res.end(buf);
+    if (dreamId) res.setHeader("X-Dream-Id", dreamId);
+
+    return res.end(jpeg);
+  } catch (e) {
+    console.error("dream failed:", e.message);
+    res.statusCode = 502;
+    return res.json({ error: "The dream engine stumbled. Try again in a moment." });
   }
 };
