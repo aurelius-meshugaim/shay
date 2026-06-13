@@ -271,8 +271,18 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
     console.log(`surface detect: x=${s.x} y=${s.y} pitch=${pitch.toFixed(3)} (W=${W} H=${H})`);
     lonDeg = (s.x / W) * 360;                              // trust x even when pitch is shallow
     if (pitch > 0.04) {
-      // detection refines distance, but only within a band around the derived D
-      dist = Math.min(Math.min(4, scene.D * 2.2), Math.max(Math.max(0.35, scene.D * 0.6), (CAM_H - surfaceH) / Math.tan(pitch)));
+      // detection refines distance, but only within a band around the derived D;
+      // out-of-band implies the pointer missed the surface (e.g. back edge /
+      // window behind it — seen 2026-06-13), so re-anchor y to the derived
+      // scene at the clamped distance instead of pasting at the stray point.
+      const lo = Math.max(0.35, scene.D * 0.6), hi = Math.min(4, scene.D * 1.5);
+      const raw = (CAM_H - surfaceH) / Math.tan(pitch);
+      dist = Math.min(hi, Math.max(lo, raw));
+      let sy = s.y;
+      if (raw < lo || raw > hi) {
+        sy = Math.round(H / 2 + (Math.atan((CAM_H - surfaceH) / dist) / Math.PI) * H);
+        console.log(`detect dist ${raw.toFixed(2)}m outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] → re-anchor y ${s.y}→${sy}`);
+      }
       const d = dimensions || {};
       const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
       const hcm = d.height_cm || wcm * 0.7;
@@ -281,7 +291,7 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
       box = {
         pxW, pxH,
         left: Math.max(0, Math.min(W - pxW, Math.round(s.x - pxW / 2))),
-        top: Math.max(0, Math.min(H - pxH, Math.round(s.y - pxH + pxH * 0.04))), // bottom kisses the surface
+        top: Math.max(0, Math.min(H - pxH, Math.round(sy - pxH + pxH * 0.04))), // bottom kisses the surface
       };
     }
   } catch (e) { console.error("surface detect fell back to convention:", e.message); }
