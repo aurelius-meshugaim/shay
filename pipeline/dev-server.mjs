@@ -9,6 +9,7 @@
 // viewer can be exercised without burning a generation.
 
 import { setDefaultResultOrder } from "node:dns";
+import { setDefaultAutoSelectFamily } from "node:net";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -16,6 +17,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 setDefaultResultOrder("ipv4first");
+// Happy-Eyeballs family autoselection intermittently ETIMEDOUTs on hosts with
+// broken IPv6 (Gemini calls failed ~2/3 of the time, 2026-06-13) — force v4.
+setDefaultAutoSelectFamily(false);
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = Number(process.env.PORT || 8090);
