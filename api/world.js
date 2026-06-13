@@ -191,13 +191,15 @@ module.exports = async (req, res) => {
         return res.json({ status: "error", message: opData.error.message || "World generation failed." });
       }
       if (!opData.done) {
-        const pct = opData.metadata?.progress_percentage;
-        return res.json({ status: "pending", progress: pct || null });
+        // progress may be in metadata.progress_percentage or metadata.progress.percent
+        const pct = opData.metadata?.progress_percentage ?? opData.metadata?.progress?.percent ?? null;
+        return res.json({ status: "pending", progress: pct });
       }
 
       // Done — extract world_id and get the SPZ
+      // The response object has world_id (not .id) per Marble API spec.
       const world = opData.response;
-      const worldId = world?.id;
+      const worldId = world?.world_id || world?.id || opData.metadata?.world_id;
       if (!worldId) {
         console.error("No world id in response:", JSON.stringify(opData).slice(0, 300));
         return res.json({ status: "pending" }); // retry
