@@ -270,7 +270,15 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
     const pitch = ((s.y - H / 2) / H) * Math.PI;           // + below horizon
     console.log(`surface detect: x=${s.x} y=${s.y} pitch=${pitch.toFixed(3)} (W=${W} H=${H})`);
     lonDeg = (s.x / W) * 360;                              // trust x even when pitch is shallow
-    if (pitch > 0.04) {
+    // The stage prompt pins the stand at the image center; every detection that
+    // actually locked it has come back within ±3° (6 runs, 2026-06-13), while
+    // bigger deviations were always a different surface (console, stairs).
+    // Outlier x ⇒ the whole point is suspect: fall back to the derived scene
+    // (box already holds the derived geometry at the staged center).
+    if (Math.abs(lonDeg - 180) > 4) {
+      console.log(`detect lon ${lonDeg.toFixed(1)}° off staged center → derived scene fallback`);
+      lonDeg = 180;
+    } else if (pitch > 0.04) {
       // detection refines distance, but only within a band around the derived D;
       // out-of-band implies the pointer missed the surface (e.g. back edge /
       // window behind it — seen 2026-06-13), so re-anchor y to the derived
