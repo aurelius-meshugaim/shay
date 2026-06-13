@@ -154,9 +154,7 @@ const REPAIR_PROMPT = `This is a 360-degree equirectangular panorama of a room. 
 Repair ONLY that vertical seam zone: blend the architecture and surfaces across it so the room reads as one continuous space. Keep everything else pixel-faithful — same furniture, same displayed stone, same windows, same lighting, same equirectangular projection. A displayed stone may sit split across the left and right image edges — that split is correct wrap-around, NOT the seam: leave it perfectly intact. The left and right edges of the image are already continuous; keep them exactly continuous.`;
 
 // One full seam pass: roll the broken wrap seam to mid-frame, light Gemini
-// repair, roll back, normalize 2:1. Runs ONCE, at the very end of the dream
-// pipeline (the integration render re-synthesizes globally, so earlier
-// repairs would be wasted budget).
+// repair, roll back, normalize 2:1. Kept for walks (whole frame re-synthesised).
 async function seamRepairFull(key, pano) {
   const rolled = await roll50(pano);
   const repaired = await gemini(key, [
@@ -164,6 +162,35 @@ async function seamRepairFull(key, pano) {
     { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
   ], "seam-repair");
   return finish(repaired);
+}
+
+const REPAIR_STRIP_PROMPT = `This image is a vertical slice from the middle of a panorama. Down its center is a seam where two halves of a room meet with a hard discontinuity — misaligned walls, ceiling, or floor lines.
+
+Blend ONLY that central seam so the two halves join into one continuous wall/ceiling/floor. Keep everything else pixel-faithful. CRITICAL: do NOT add, invent, or grow any new structure — no pillar, no column, no beam, no divider. Only smooth and align what is already there on each side. Same lighting, same materials, same colors. Photorealistic.`;
+
+// Strip seam pass: repair ONLY a vertical strip around the (rolled) seam, then
+// feather it back. ~2x faster than a full re-render AND structurally safe — the
+// model can't grow a column outside the strip, and the prompt forbids new
+// structures (full-pano repair occasionally grew a pillar on stone-walled rooms).
+async function seamRepairStrip(key, pano) {
+  const rolled = await roll50(pano);
+  const { width: W, height: H } = await sharp(rolled).metadata();
+  const sw = Math.round(W * 0.34), sl = Math.round(W / 2 - sw / 2);
+  const strip = await sharp(rolled).extract({ left: sl, top: 0, width: sw, height: H }).jpeg({ quality: 95 }).toBuffer();
+  try {
+    const fixed = await gemini(key, [
+      { text: REPAIR_STRIP_PROMPT },
+      { inlineData: { mimeType: "image/jpeg", data: strip.toString("base64") } },
+    ], "seam-strip");
+    const back = await featherIn(rolled, fixed, sl, 0, sw, H);
+    return finish(back);
+  } catch (e) {
+    console.error("seam-strip failed → full repair:", e.message);
+    return finish(await gemini(key, [
+      { text: REPAIR_PROMPT },
+      { inlineData: { mimeType: "image/jpeg", data: rolled.toString("base64") } },
+    ], "seam-repair"));
+  }
 }
 
 async function generate({ base, key, stage, desc }) {
@@ -689,7 +716,7 @@ module.exports = async (req, res) => {
     const tE = Date.now();
     const embedded = await withStone(styled);
     const tS = Date.now();
-    const pano = await seamRepairFull(KEY, embedded.pano);
+    const pano = await seamRepairStrip(KEY, embedded.pano);
     console.log(`dream timings: restyle=${((tE - tR) / 1000).toFixed(1)}s embed=${((tS - tE) / 1000).toFixed(1)}s seam=${((Date.now() - tS) / 1000).toFixed(1)}s total=${((Date.now() - tR) / 1000).toFixed(1)}s path=${embedded.path}`);
     return { ...embedded, pano };
   }
