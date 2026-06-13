@@ -624,7 +624,7 @@
         // bottom-up scale chain — mirrors sceneFromStone() in api/dream.js (keep in sync):
         // stand from stone (contemplation height ~1.25m), camera from stone (~7.5° presence)
         const standH=big?(hcm<70?0.10:0):Math.min(1.10,Math.max(0.60,1.25-hcm/200));
-        const dDef=Math.round(Math.min(3.5,Math.max(0.55,(wcm/200)/Math.tan(3.75*Math.PI/180)))*20)/20;
+        const dDef=Math.round(Math.min(3.5,Math.max(0.9,(wcm/200)/Math.tan(3.75*Math.PI/180)))*20)/20;
         const surfaceH=(place&&isFinite(place.surfaceH))?place.surfaceH:standH;
         const D=(place&&place.dist)||dDef, centerY=surfaceH+hcm/200-1.6;
         const stoneLon=(place&&place.lon)||180;

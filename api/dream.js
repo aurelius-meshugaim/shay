@@ -109,9 +109,12 @@ function sceneFromStone(dimensions) {
     topD = Math.max(15, Math.round((dcm * 2.5) / 5) * 5);
   }
 
-  // camera from stone (m), rounded to 5 cm
+  // camera from stone (m), rounded to 5 cm. Floor is 0.9m, not closer: the
+  // generator stages pedestals at ~1-2m no matter what the prompt says
+  // (verified 2026-06-13 — "exactly 0.55m" still rendered at ~2m), and the
+  // composite must agree with where the pano can plausibly show a stand.
   const halfAngle = (PRESENCE_DEG / 2) * Math.PI / 180;
-  const D = Math.round(Math.min(3.5, Math.max(0.55, (wcm / 200) / Math.tan(halfAngle))) * 20) / 20;
+  const D = Math.round(Math.min(3.5, Math.max(0.9, (wcm / 200) / Math.tan(halfAngle))) * 20) / 20;
 
   // room from stand (m)
   const wallMin = Math.max(Math.round(3 * D * 10) / 10, 3.5);
@@ -122,7 +125,7 @@ function sceneFromStone(dimensions) {
     ? (standH
         ? `A low, sturdy display plinth exactly ${standH} cm tall, its flat top about ${topW} by ${topD} centimeters, sits on the floor at the horizontal center of the image, exactly ${D} meters from the camera. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty plinth as if awaiting a massive sculpture. ${roomSpec}`
         : `A clear, open stretch of floor lies at the horizontal center of the image, exactly ${D} meters from the camera — kept completely empty, as if awaiting a massive sculpture. Nothing stands there. ${roomSpec}`)
-    : `An elegant, slender display pedestal exactly ${standH} cm tall, its flat top about ${topW} by ${topD} centimeters, stands at the horizontal center of the image, exactly ${D} meters from the camera — close to the viewer, clearly the nearest piece of furniture. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty pedestal as if awaiting a small treasured object. ${roomSpec}`;
+    : `An elegant, slender display pedestal exactly ${standH} cm tall, its flat top about ${topW} by ${topD} centimeters, stands at the horizontal center of the image, exactly ${D} meters from the camera — in the immediate foreground, clearly the nearest piece of furniture, appearing tall and prominent in the frame with its top seen slightly from above. Its top is COMPLETELY EMPTY — nothing on it. No other pedestal, side table or console competes with it. The room is arranged around this empty pedestal as if awaiting a small treasured object. ${roomSpec}`;
 
   return { big, standH, topW, topD, D, wallMin, surfaceH, stage };
 }
@@ -216,7 +219,7 @@ async function geminiText(key, parts, label) {
 async function detectSurface(jpeg, key, W, H, scene) {
   const what = scene.big
     ? (scene.standH ? "the empty top surface of the low display plinth" : "the clear open floor area meant for a sculpture")
-    : "the empty top surface of the display pedestal or side table";
+    : `the tall, slender display pedestal standing alone with NOTHING on it (about ${scene.standH} cm tall — not a bookshelf, console or desk that has objects on it)`;
   // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
   // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
   // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
@@ -269,7 +272,7 @@ async function embedStone(jpeg, cutout, dimensions, scene, key) {
     lonDeg = (s.x / W) * 360;                              // trust x even when pitch is shallow
     if (pitch > 0.04) {
       // detection refines distance, but only within a band around the derived D
-      dist = Math.min(Math.min(4, scene.D * 2), Math.max(Math.max(0.35, scene.D * 0.6), (CAM_H - surfaceH) / Math.tan(pitch)));
+      dist = Math.min(Math.min(4, scene.D * 2.2), Math.max(Math.max(0.35, scene.D * 0.6), (CAM_H - surfaceH) / Math.tan(pitch)));
       const d = dimensions || {};
       const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
       const hcm = d.height_cm || wcm * 0.7;
