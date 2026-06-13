@@ -257,9 +257,12 @@ async function detectSurface(jpeg, key, W, H, scene) {
   // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
   // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
   // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
+  // Pointing input is downscaled (coords are normalized → resolution-free);
+  // full-size uploads ×3 dominated the budget for nothing.
+  const small = await sharp(jpeg).resize(1280, 640, { fit: "fill" }).jpeg({ quality: 80 }).toBuffer();
   const parts = [
     { text: `This is an equirectangular interior panorama. Near the horizontal center of the image there is ${what}. Point to the exact spot on that surface where a displayed object would touch it (the center of the surface's visible top face). Answer with ONLY JSON: {"point": [y, x]} with coordinates normalized to 0-1000. No other text.` },
-    { inlineData: { mimeType: "image/jpeg", data: jpeg.toString("base64") } },
+    { inlineData: { mimeType: "image/jpeg", data: small.toString("base64") } },
   ];
   const settled = await Promise.allSettled([1, 2, 3].map(() => geminiText(key, parts, "detect-surface")));
   const pts = [];
@@ -336,9 +339,11 @@ Change nothing else about the room — same furniture, same windows, same materi
 async function sizeGate(pano, key, box, W) {
   let txt;
   try {
+    // downscaled input — box coords are normalized, the upload isn't free
+    const small = await sharp(pano).resize(1280, 640, { fit: "fill" }).jpeg({ quality: 80 }).toBuffer();
     txt = await geminiText(key, [
       { text: `This is an equirectangular interior panorama. A stone specimen is displayed near the horizontal center of the image — on a pedestal, plinth, table or the floor. Give the tight bounding box of the stone itself (not its stand). Answer with ONLY JSON: {"box_2d": [ymin, xmin, ymax, xmax]} with coordinates normalized to 0-1000. If no displayed stone is visible, answer {"box_2d": null}. No other text.` },
-      { inlineData: { mimeType: "image/jpeg", data: pano.toString("base64") } },
+      { inlineData: { mimeType: "image/jpeg", data: small.toString("base64") } },
     ], "size-gate");
   } catch (e) {
     // the gate itself failing is no evidence against the render — accept
@@ -447,12 +452,14 @@ async function embedStone(jpeg, cutout, dimensions, scene, key, original, starte
   let pano = null, path = "paste";
   try {
     const t0 = Date.now();
-    const ref = original || cutout; // appearance reference: original photo, cutout if missing
-    const refMime = ref[0] === 0x89 ? "image/png" : "image/jpeg"; // sniff, don't trust extensions
+    // appearance reference: original photo (cutout if missing), shrunk — it
+    // only informs colors/banding/silhouette, full res is wasted upload
+    const refSrc = original || cutout;
+    const ref = await sharp(refSrc).resize(768, 768, { fit: "inside", withoutEnlargement: true }).png().toBuffer().catch(() => refSrc);
     const integrated = await normalize(await gemini(key, [
       { text: INTEGRATE_PROMPT },
       { inlineData: { mimeType: "image/jpeg", data: sketch.toString("base64") } },
-      { inlineData: { mimeType: refMime, data: ref.toString("base64") } },
+      { inlineData: { mimeType: "image/png", data: ref.toString("base64") } },
     ], "integrate"));
     const tGate = Date.now();
     const gate = await sizeGate(integrated, key, box, W);
@@ -623,16 +630,16 @@ module.exports = async (req, res) => {
     const cutoutUrl = row?.images?.cutout;
     if (!cutoutUrl) return bare;
     try {
-      const c = await fetch(cutoutUrl);
-      if (!c.ok) return bare;
       // the stone's original photo = appearance reference for the integration
       // render. DB stones carry a URL; legacy manifest stones live in the repo.
-      const original = await Promise.any(
+      const originalP = Promise.any(
         [row?.images?.original, `${host}/stones/${stone}/original.jpg`, `${host}/stones/${stone}/original.png`]
           .filter(Boolean)
           .map((u) => fetch(u).then(async (r) => { if (!r.ok) throw new Error("miss"); return Buffer.from(await r.arrayBuffer()); })),
       ).catch(() => null);
-      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan, KEY, original, startedAt);
+      const c = await fetch(cutoutUrl);
+      if (!c.ok) return bare;
+      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan, KEY, await originalP, startedAt);
     } catch (e) {
       console.error("embed skipped, serving bare pano:", e.message);
       return bare;
