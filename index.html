@@ -499,12 +499,14 @@
           throw new Error(m);
         }
         const blob=await r.blob();
+        const place={ lon:parseFloat(r.headers.get('x-stone-lon'))||180,
+                      dist:parseFloat(r.headers.get('x-stone-dist'))||0 };
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
         const old=dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
-        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob) };
+        dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), place };
         renderDreamResult();
-        await openPano(blob);
+        await openPano(blob, place);
       }catch(err){
         clearInterval(ticker); clearTimeout(emailTimer);
         msg.textContent=err.message||'Something went wrong — try again.';
@@ -519,10 +521,12 @@
       document.getElementById('dreamResult').hidden=!r;
       document.getElementById('dreamEnter').hidden=!r;
       document.getElementById('dreamAgain').hidden=!r;
+      const tb=thumbs.querySelector('.dream-thumb img');
       if(r){
         document.getElementById('dreamResult').src=r.url;
-        document.getElementById('dreamDesc').value=r.desc;
-        const tb=thumbs.querySelector('.dream-thumb img'); if(tb) tb.src=r.url;
+        if(tb) tb.src=r.url;
+      } else if(tb&&activeStone){
+        tb.src=activeStone.variants?.blur?.src||activeStone.original;
       }
     }
     dreamSlide.addEventListener('click',(e)=>{
@@ -530,14 +534,19 @@
       if(e.target.closest('.dream-again')||e.target.closest('.dream-email')) return;
       e.stopPropagation();
       const r=dreamResults[activeStone.id];
-      if(r) openPano(r.blob);
+      if(r) openPano(r.blob, r.place);
     });
     function regenDream(e){
       if(e) e.stopPropagation();
       if(dreaming) return;
+      // full revert: as if no dream happened — fresh form, empty words
       const r=dreamResults[activeStone.id];
-      if(r) document.getElementById('dreamDesc').value=r.desc;
-      startDream();
+      if(r){ URL.revokeObjectURL(r.url); delete dreamResults[activeStone.id]; }
+      document.getElementById('dreamDesc').value='';
+      document.getElementById('dreamMsg').textContent='';
+      document.getElementById('dreamMsg').className='dream-msg';
+      document.getElementById('dreamEmail').hidden=true;
+      renderDreamResult();
     }
 
     async function emailDream(e){
@@ -580,7 +589,7 @@
           undefined, ()=>fail(new Error('Could not read the panorama.')));
       });
     }
-    async function openPano(blob){
+    async function openPano(blob, place){
       await loadThree();
       const url=URL.createObjectURL(blob);
       const tex=await loadTex(url);
@@ -597,7 +606,7 @@
       const mat=new THREE.MeshBasicMaterial({map:tex});
       scene.add(new THREE.Mesh(geo, mat));
       const maxLat=Math.max(15, coverage*85);
-      let lon=PANO_INIT_LON, lat=0, vlon=0, vlat=0, drag=null, raf=0;
+      let lon=(place&&place.lon)||PANO_INIT_LON, lat=0, vlon=0, vlat=0, drag=null, raf=0;
       window.panoYaw=(l,t)=>{ lon=l; if(t!==undefined) lat=t; }; // test/calibration hook
 
       // ---- the stone as a 3D layer (same object, sharp, true size, every angle) ----
@@ -611,14 +620,15 @@
         const d=activeStone.dimensions||{};
         const big=Math.max(d.width_cm||0,d.height_cm||0,d.depth_cm||0)>=40;
         const wcm=d.width_cm||d.height_cm||d.depth_cm||14, hcm=d.height_cm||wcm*0.7;
-        const D=big?2.2:1.15, centerY=(big?hcm/200:1.05+hcm/200)-1.6;
+        const D=(place&&place.dist)||(big?2.2:1.15), centerY=(big?hcm/200:1.05+hcm/200)-1.6;
+        const stoneLon=(place&&place.lon)||180;
         new THREE.TextureLoader().load(activeStone.cutout,(t)=>{
           t.colorSpace=THREE.SRGBColorSpace;
           t.anisotropy=renderer.capabilities.getMaxAnisotropy();
           const aspect=t.image.width/t.image.height, hM=hcm/100;
           stone=new THREE.Mesh(new THREE.PlaneGeometry(hM*aspect,hM),
             new THREE.MeshBasicMaterial({map:t,transparent:true,side:THREE.DoubleSide}));
-          stoneWorld=yawDir(180).multiplyScalar(D).setY(centerY);
+          stoneWorld=yawDir(stoneLon).multiplyScalar(D).setY(centerY);
           scene.add(stone); placeStone();
         });
       }

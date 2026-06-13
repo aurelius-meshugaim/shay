@@ -128,7 +128,7 @@ Repair ONLY that vertical seam zone: blend the architecture and surfaces across 
 async function walkStep({ key, pano, direction }) {
   const movePrompt = `This is a 360-degree equirectangular panorama of a room, captured from its center at eye level.
 
-Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves.
+Re-render the EXACT SAME room from a new camera position: the camera has walked about three meters ${direction}, still at eye level. Every object, piece of furniture, material, window view and light source stays identical — same room, same time of day, only the viewpoint moves. If a small displayed stone sits on a pedestal or table, REMOVE it and any shadow it casts — render its display surface empty.
 
 CRITICAL: output a full 360x180 equirectangular panorama — floor at the bottom edge, ceiling at the top edge, left and right edges perfectly continuous with each other. Photorealistic. No people, no text.`;
 
@@ -154,26 +154,122 @@ async function finish(repaired) {
   return back;
 }
 
-// Paste the stone cutout into a finished pano at the geometrically exact
-// pixel size (used for the email path — the live viewer renders the stone
-// as a 3D layer instead).
-async function compositeStone(jpeg, cutout, dimensions, big) {
+// Text/vision call (no image output) — used for pedestal detection.
+async function geminiText(key, parts, label) {
+  for (let attempt = 1; ; attempt++) {
+    const r = await fetch(`${API}/gemini-2.5-flash:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts }] }),
+    });
+    if ((r.status === 429 || r.status >= 500) && attempt <= 2) {
+      await new Promise((ok) => setTimeout(ok, 2000));
+      continue;
+    }
+    if (!r.ok) throw new Error(`${label}: HTTP ${r.status}`);
+    const data = await r.json();
+    const text = (data.candidates?.[0]?.content?.parts ?? []).filter((p) => p.text).map((p) => p.text).join("");
+    if (text) return text;
+    if (attempt <= 2) continue;
+    throw new Error(`${label}: no text`);
+  }
+}
+
+// Where did the model ACTUALLY put the display surface? Convention says
+// pedestal-at-center, but generated heights/distances vary — detection makes
+// the paste land ON the surface instead of hovering at convention coords.
+async function detectSurface(jpeg, key, W, H, big) {
+  const what = big ? "the clear open floor area meant for a sculpture" : "the empty top surface of the display pedestal or side table";
+  // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
+  // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
+  // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
+  const parts = [
+    { text: `This is an equirectangular interior panorama. Near the horizontal center of the image there is ${what}. Point to the exact spot on that surface where a displayed object would touch it (the center of the surface's visible top face). Answer with ONLY JSON: {"point": [y, x]} with coordinates normalized to 0-1000. No other text.` },
+    { inlineData: { mimeType: "image/jpeg", data: jpeg.toString("base64") } },
+  ];
+  const settled = await Promise.allSettled([1, 2, 3].map(() => geminiText(key, parts, "detect-surface")));
+  const pts = [];
+  for (const s of settled) {
+    if (s.status !== "fulfilled") continue;
+    const m = s.value.match(/\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]/);
+    if (!m) continue;
+    const x = (parseFloat(m[2]) / 1000) * W, y = (parseFloat(m[1]) / 1000) * H;
+    if (x > 0 && x < W && y > H / 2 && y < H) pts.push({ x, y });
+  }
+  if (!pts.length) throw new Error(`detect: no valid point in ${settled.map((s) => JSON.stringify(s.status === "fulfilled" ? s.value.slice(0, 60) : s.reason?.message)).join(" | ")}`);
+  const med = (a) => a.sort((p, q) => p - q)[Math.floor(a.length / 2)];
+  return { x: Math.round(med(pts.map((p) => p.x))), y: Math.round(med(pts.map((p) => p.y))) };
+}
+
+// Geometry of the stone's box inside a 2:1 equirect, per the placement
+// convention (shared with the viewer's 3D layer).
+function stoneBox(W, H, dimensions, big) {
   const d = dimensions || {};
   const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
   const hcm = d.height_cm || wcm * 0.7;
-  const D = big ? 2.2 : 1.15;                       // m from camera (placement convention)
+  const D = big ? 2.2 : 1.15;                         // m from camera
   const centerY = big ? hcm / 200 : 1.05 + hcm / 200; // m above floor
   const CAM = 1.6;
-  const { width: W, height: H } = await sharp(jpeg).metadata();
   const pxW = Math.max(8, Math.round((2 * Math.atan(wcm / 200 / D)) / (2 * Math.PI) * W));
   const pxH = Math.max(8, Math.round((2 * Math.atan(hcm / 200 / D)) / Math.PI * H));
-  const pitch = Math.atan((CAM - centerY) / D);     // + = below horizon
+  const pitch = Math.atan((CAM - centerY) / D);       // + = below horizon
   const cy = Math.round(H / 2 + (pitch / Math.PI) * H);
-  const stonePng = await sharp(cutout).resize(pxW, pxH, { fit: "fill" }).png().toBuffer();
-  return sharp(jpeg)
-    .composite([{ input: stonePng, left: Math.round(W / 2 - pxW / 2), top: Math.round(cy - pxH / 2) }])
-    .jpeg({ quality: 92 })
+  return { pxW, pxH, left: Math.round(W / 2 - pxW / 2), top: Math.round(cy - pxH / 2) };
+}
+
+// Embed the stone INTO the room (R&D rnd/2026-06-13 probe recipe):
+// 1. paste the cutout at the geometrically exact size
+// 2. Gemini harmonizes ONLY a crop around it (contact shadow, light spill)
+// 3. the cutout is re-pasted on top — the model never owns the stone's pixels
+async function embedStone(jpeg, cutout, dimensions, big, key) {
+  const { width: W, height: H } = await sharp(jpeg).metadata();
+  let box = stoneBox(W, H, dimensions, big);
+  let lonDeg = 180, dist = big ? 2.2 : 1.15;
+  try {
+    const s = await detectSurface(jpeg, key, W, H, big);
+    const surfaceH = big ? 0 : 1.05;                       // m: floor vs pedestal top
+    const pitch = ((s.y - H / 2) / H) * Math.PI;           // + below horizon
+    console.log(`surface detect: x=${s.x} y=${s.y} pitch=${pitch.toFixed(3)} (W=${W} H=${H})`);
+    lonDeg = (s.x / W) * 360;                              // trust x even when pitch is shallow
+    if (pitch > 0.04) {
+      dist = Math.min(big ? 4 : 3.2, Math.max(big ? 1.2 : 0.6, (1.6 - surfaceH) / Math.tan(pitch)));
+      const d = dimensions || {};
+      const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
+      const hcm = d.height_cm || wcm * 0.7;
+      const pxW = Math.max(8, Math.round((2 * Math.atan(wcm / 200 / dist)) / (2 * Math.PI) * W));
+      const pxH = Math.max(8, Math.round((2 * Math.atan(hcm / 200 / dist)) / Math.PI * H));
+      box = {
+        pxW, pxH,
+        left: Math.max(0, Math.min(W - pxW, Math.round(s.x - pxW / 2))),
+        top: Math.max(0, Math.min(H - pxH, Math.round(s.y - pxH + pxH * 0.04))), // bottom kisses the surface
+      };
+    }
+  } catch (e) { console.error("surface detect fell back to convention:", e.message); }
+  const stonePng = await sharp(cutout).resize(box.pxW, box.pxH, { fit: "fill" }).png().toBuffer();
+  let pano = await sharp(jpeg)
+    .composite([{ input: stonePng, left: box.left, top: box.top }])
+    .jpeg({ quality: 95 })
     .toBuffer();
+
+  // crop ~3x the stone's box, clamped to the image
+  const cw = Math.min(W, box.pxW * 3.5), ch = Math.min(H, box.pxH * 3.5);
+  const cl = Math.max(0, Math.min(W - cw, Math.round(box.left + box.pxW / 2 - cw / 2)));
+  const ct = Math.max(0, Math.min(H - ch, Math.round(box.top + box.pxH / 2 - ch / 2)));
+  const crop = await sharp(pano).extract({ left: cl, top: ct, width: Math.round(cw), height: Math.round(ch) }).jpeg({ quality: 95 }).toBuffer();
+
+  try {
+    const harmonized = await gemini(key, [
+      { text: `A small stone object was digitally pasted onto the surface at the center of this photo. Integrate it into the scene: add the soft contact shadow it would cast on the surface beneath it, and subtle light interaction consistent with the room's lighting. CRITICAL: do NOT move, resize, recolor or reshape the stone itself, and change nothing else in the image.` },
+      { inlineData: { mimeType: "image/jpeg", data: crop.toString("base64") } },
+    ], "embed-harmonize");
+    const back = await sharp(harmonized).resize(Math.round(cw), Math.round(ch), { fit: "fill" }).jpeg({ quality: 95 }).toBuffer();
+    pano = await sharp(pano).composite([{ input: back, left: cl, top: ct }]).jpeg({ quality: 95 }).toBuffer();
+    // size guard: the exact cutout goes back on top
+    pano = await sharp(pano).composite([{ input: stonePng, left: box.left, top: box.top }]).jpeg({ quality: 92 }).toBuffer();
+  } catch (e) {
+    console.error("harmonize skipped:", e.message); // plain composite still ships
+  }
+  return { pano, lonDeg, dist };
 }
 
 const { stoneEmail, send: sendMail } = require("./_email.js");
@@ -304,15 +400,18 @@ module.exports = async (req, res) => {
     }).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]?.id || null).catch(() => null);
   }
 
-  // archive copies carry the stone baked in (the live viewer overlays it in 3D)
+  // embed the stone into the env (detect surface → composite → crop-harmonize)
   async function withStone(jpeg) {
     const cutoutUrl = row?.images?.cutout;
-    if (!cutoutUrl) return jpeg;
+    if (!cutoutUrl) return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
     try {
       const c = await fetch(cutoutUrl);
-      if (!c.ok) return jpeg;
-      return await compositeStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big);
-    } catch { return jpeg; }
+      if (!c.ok) return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
+      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big, KEY);
+    } catch (e) {
+      console.error("embed skipped, serving bare pano:", e.message);
+      return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
+    }
   }
 
   // permanence: store the finished illustration and link it to the log row
@@ -340,9 +439,9 @@ module.exports = async (req, res) => {
     waitUntil(
       generate(args)
         .then(withStone)
-        .then(async (jpeg) => {
-          await saveDream(jpeg);
-          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, jpeg });
+        .then(async ({ pano }) => {
+          await saveDream(pano);
+          return sendEmail({ resendKey: process.env.RESEND_API_KEY, to, name: meta?.name || stone, desc, jpeg: pano });
         })
         .catch((e) => console.error("dream-email failed:", e.message)),
     );
@@ -350,12 +449,14 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const jpeg = await generate(args);
+    const { pano, lonDeg, dist } = await withStone(await generate(args)); // embedded: surface-detected, shadowed, exact pixels
     res.statusCode = 200;
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
-    res.end(jpeg);
-    waitUntil(withStone(jpeg).then(saveDream).catch(() => {})); // archive off the hot path
+    res.setHeader("X-Stone-Lon", String(Math.round(lonDeg * 10) / 10));   // viewer aligns its 3D layer here
+    res.setHeader("X-Stone-Dist", String(Math.round(dist * 100) / 100));
+    res.end(pano);
+    waitUntil(saveDream(pano).catch(() => {})); // archive the same embedded copy
     return;
   } catch (e) {
     console.error("dream failed:", e.message);
