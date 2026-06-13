@@ -200,6 +200,22 @@
       color:var(--c2); }
     .dream-msg.err { color:#ff9d9d; font-style:normal; }
 
+    /* while dreaming: the "working on" words overcome the explanation; the
+       visitor's prompt box blurs behind them */
+    .dream-slide.dreaming .dream-soon,
+    .dream-slide.dreaming .dream-head,
+    .dream-slide.dreaming .dream-sub,
+    .dream-slide.dreaming .dream-go { display:none; }
+    .dream-slide.dreaming textarea {
+      filter:blur(5px); opacity:.4; pointer-events:none; transform:scale(1.03);
+      transition:filter .5s ease, opacity .5s ease; }
+    .dream-slide.dreaming .dream-msg {
+      position:absolute; left:8%; right:8%; top:50%; transform:translateY(-50%);
+      min-height:0; font-size:clamp(1.1rem,3vw,1.55rem); font-weight:650; font-style:normal;
+      letter-spacing:.03em; color:#fff; text-shadow:0 2px 12px rgba(0,0,0,.9);
+      animation:dreamPulse 2.6s ease-in-out infinite; z-index:2; }
+    @keyframes dreamPulse { 0%,100%{opacity:1;} 50%{opacity:.5;} }
+
     /* ---- 360 panorama viewer ---- */
     .pano { position:fixed; inset:0; z-index:30; display:none; background:#06080b; }
     .pano.open { display:block; animation:lbIn .3s ease; }
@@ -398,7 +414,7 @@
       const desc=document.getElementById('dreamDesc').value.trim(),
             msg=document.getElementById('dreamMsg'), go=document.getElementById('dreamGo');
       if(desc.length<3){ msg.textContent='Tell us a little more about your home.'; msg.className='dream-msg err'; return; }
-      dreaming=true; go.disabled=true; msg.className='dream-msg';
+      dreaming=true; go.disabled=true; msg.className='dream-msg'; dreamSlide.classList.add('dreaming');
       let li=0; msg.textContent=DREAM_LINES[0];
       const ticker=setInterval(()=>{ msg.textContent=DREAM_LINES[++li%DREAM_LINES.length]; }, 4000);
       try{
@@ -417,7 +433,7 @@
         clearInterval(ticker);
         msg.textContent=err.message||'Something went wrong — try again.';
         msg.className='dream-msg err';
-      }finally{ dreaming=false; go.disabled=false; }
+      }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); }
     }
 
     // ---- 360 viewer (Three.js, lazy-loaded) ----
