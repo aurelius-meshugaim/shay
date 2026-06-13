@@ -500,7 +500,8 @@
         }
         const blob=await r.blob();
         const place={ lon:parseFloat(r.headers.get('x-stone-lon'))||180,
-                      dist:parseFloat(r.headers.get('x-stone-dist'))||0 };
+                      dist:parseFloat(r.headers.get('x-stone-dist'))||0,
+                      surfaceH:parseFloat(r.headers.get('x-stone-surface-h')) }; // NaN → derived fallback
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
         const old=dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
@@ -620,7 +621,12 @@
         const d=activeStone.dimensions||{};
         const big=Math.max(d.width_cm||0,d.height_cm||0,d.depth_cm||0)>=40;
         const wcm=d.width_cm||d.height_cm||d.depth_cm||14, hcm=d.height_cm||wcm*0.7;
-        const D=(place&&place.dist)||(big?2.2:1.15), centerY=(big?hcm/200:1.05+hcm/200)-1.6;
+        // bottom-up scale chain — mirrors sceneFromStone() in api/dream.js (keep in sync):
+        // stand from stone (contemplation height ~1.25m), camera from stone (~7.5° presence)
+        const standH=big?(hcm<70?0.10:0):Math.min(1.10,Math.max(0.60,1.25-hcm/200));
+        const dDef=Math.round(Math.min(3.5,Math.max(0.55,(wcm/200)/Math.tan(3.75*Math.PI/180)))*20)/20;
+        const surfaceH=(place&&isFinite(place.surfaceH))?place.surfaceH:standH;
+        const D=(place&&place.dist)||dDef, centerY=surfaceH+hcm/200-1.6;
         const stoneLon=(place&&place.lon)||180;
         new THREE.TextureLoader().load(activeStone.cutout,(t)=>{
           t.colorSpace=THREE.SRGBColorSpace;

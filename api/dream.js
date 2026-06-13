@@ -75,21 +75,56 @@ async function roll(buf, frac = 0.5) {
 }
 const roll50 = (buf) => roll(buf, 0.5);
 
-// Placement convention shared with the viewer (index.html STAGE constants):
-// the room is generated WITHOUT the stone — the client renders the stone's
-// cutout as a 3D layer at these exact coordinates, so its size is guaranteed
-// by geometry (see OCW rnd/2026-06-13-stone-size-realism/SYNTHESIS.md).
-//   small (<40cm): empty pedestal, top ~1.05m, ~1.15m from camera, image center
-//   big   (≥40cm): clear floor area ~2.2m from camera, image center
-function placement(stoneMeta) {
-  const d = stoneMeta?.dimensions || {};
-  const big = Math.max(d.width_cm || 0, d.height_cm || 0, d.depth_cm || 0) >= 40;
-  return {
-    big,
-    stage: big
-      ? "A clear, open stretch of floor lies at the horizontal center of the image, about 2 meters from the camera — kept completely empty, as if awaiting a sculpture. Nothing stands there."
-      : "An elegant, simple display pedestal about 1 meter tall stands at the horizontal center of the image, about 1.2 meters from the camera. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty pedestal as if awaiting a treasured object.",
-  };
+// ---- bottom-up scale chain -------------------------------------------------
+// The room is generated WITHOUT the stone — the client renders the stone's
+// cutout as a 3D layer, so its size is guaranteed by geometry (see OCW
+// rnd/2026-06-13-stone-size-realism/SYNTHESIS.md). ONE derivation, built up
+// from the stone's true measures, drives (a) the generation prompt's exact
+// numbers, (b) the composite geometry, (c) the response headers, (d) the
+// viewer's 3D-layer constants (index.html mirrors these formulas — keep in sync).
+//   stand from stone:  stone center at contemplation height ~125 cm
+//                      ⇒ stand_h = clamp(125 − stone_h/2, 60, 110) cm (<40cm stones);
+//                      big stones sit on the floor (low 10cm plinth if h < 70cm)
+//   camera from stone: target angular presence ~7.5° horizontal
+//                      ⇒ D = (stone_w/2) / tan(3.75°), clamped [0.55, 3.5] m
+//   room from stand:   walls ≥ max(3×D, 3.5 m), ceiling ≥ 2.8 m
+const CAM_H = 1.6;        // m — camera eye height in the equirect convention
+const PRESENCE_DEG = 7.5; // ° — target horizontal angular size of the stone
+function sceneFromStone(dimensions) {
+  const d = dimensions || {};
+  const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
+  const hcm = d.height_cm || wcm * 0.7;
+  const dcm = d.depth_cm || Math.round(wcm * 0.7);
+  const big = Math.max(wcm, hcm, dcm) >= 40;
+
+  // stand from stone (cm); top ≈ 2.5× footprint (plinths tighter, 1.4×)
+  let standH, topW, topD;
+  if (big) {
+    standH = hcm < 70 ? 10 : 0; // low plinth or bare floor
+    topW = Math.round((wcm * 1.4) / 10) * 10;
+    topD = Math.round((dcm * 1.4) / 10) * 10;
+  } else {
+    standH = Math.round(Math.min(110, Math.max(60, 125 - hcm / 2)));
+    topW = Math.max(15, Math.round((wcm * 2.5) / 5) * 5);
+    topD = Math.max(15, Math.round((dcm * 2.5) / 5) * 5);
+  }
+
+  // camera from stone (m), rounded to 5 cm
+  const halfAngle = (PRESENCE_DEG / 2) * Math.PI / 180;
+  const D = Math.round(Math.min(3.5, Math.max(0.55, (wcm / 200) / Math.tan(halfAngle))) * 20) / 20;
+
+  // room from stand (m)
+  const wallMin = Math.max(Math.round(3 * D * 10) / 10, 3.5);
+
+  const surfaceH = standH / 100; // m — height the stone's underside sits at
+  const roomSpec = `The nearest walls are at least ${wallMin} meters away from the camera and the ceiling is at least 2.8 meters high — the room stays open and spacious around it.`;
+  const stage = big
+    ? (standH
+        ? `A low, sturdy display plinth exactly ${standH} cm tall, its flat top about ${topW} by ${topD} centimeters, sits on the floor at the horizontal center of the image, exactly ${D} meters from the camera. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty plinth as if awaiting a massive sculpture. ${roomSpec}`
+        : `A clear, open stretch of floor lies at the horizontal center of the image, exactly ${D} meters from the camera — kept completely empty, as if awaiting a massive sculpture. Nothing stands there. ${roomSpec}`)
+    : `An elegant, slender display pedestal exactly ${standH} cm tall, its flat top about ${topW} by ${topD} centimeters, stands at the horizontal center of the image, exactly ${D} meters from the camera — close to the viewer, clearly the nearest piece of furniture. Its top is COMPLETELY EMPTY — nothing on it. The room is arranged around this empty pedestal as if awaiting a small treasured object. ${roomSpec}`;
+
+  return { big, standH, topW, topD, D, wallMin, surfaceH, stage };
 }
 
 async function generate({ base, key, stage, desc }) {
@@ -178,8 +213,10 @@ async function geminiText(key, parts, label) {
 // Where did the model ACTUALLY put the display surface? Convention says
 // pedestal-at-center, but generated heights/distances vary — detection makes
 // the paste land ON the surface instead of hovering at convention coords.
-async function detectSurface(jpeg, key, W, H, big) {
-  const what = big ? "the clear open floor area meant for a sculpture" : "the empty top surface of the display pedestal or side table";
+async function detectSurface(jpeg, key, W, H, scene) {
+  const what = scene.big
+    ? (scene.standH ? "the empty top surface of the low display plinth" : "the clear open floor area meant for a sculpture")
+    : "the empty top surface of the display pedestal or side table";
   // [y, x] normalized to 0-1000 is the coordinate convention Gemini's pointing
   // is trained on — raw pixel coords on a 2880-wide equirect came back wild.
   // Single points are noisy (±100px in y) → 3 parallel calls, median wins.
@@ -201,18 +238,17 @@ async function detectSurface(jpeg, key, W, H, big) {
   return { x: Math.round(med(pts.map((p) => p.x))), y: Math.round(med(pts.map((p) => p.y))) };
 }
 
-// Geometry of the stone's box inside a 2:1 equirect, per the placement
-// convention (shared with the viewer's 3D layer).
-function stoneBox(W, H, dimensions, big) {
+// Geometry of the stone's box inside a 2:1 equirect, driven by the SAME
+// derived scene the prompt was built from (shared with the viewer's 3D layer).
+function stoneBox(W, H, dimensions, scene) {
   const d = dimensions || {};
   const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
   const hcm = d.height_cm || wcm * 0.7;
-  const D = big ? 2.2 : 1.15;                         // m from camera
-  const centerY = big ? hcm / 200 : 1.05 + hcm / 200; // m above floor
-  const CAM = 1.6;
+  const D = scene.D;                          // m from camera (derived)
+  const centerY = scene.surfaceH + hcm / 200; // m above floor (derived stand top)
   const pxW = Math.max(8, Math.round((2 * Math.atan(wcm / 200 / D)) / (2 * Math.PI) * W));
   const pxH = Math.max(8, Math.round((2 * Math.atan(hcm / 200 / D)) / Math.PI * H));
-  const pitch = Math.atan((CAM - centerY) / D);       // + = below horizon
+  const pitch = Math.atan((CAM_H - centerY) / D); // + = below horizon
   const cy = Math.round(H / 2 + (pitch / Math.PI) * H);
   return { pxW, pxH, left: Math.round(W / 2 - pxW / 2), top: Math.round(cy - pxH / 2) };
 }
@@ -221,18 +257,19 @@ function stoneBox(W, H, dimensions, big) {
 // 1. paste the cutout at the geometrically exact size
 // 2. Gemini harmonizes ONLY a crop around it (contact shadow, light spill)
 // 3. the cutout is re-pasted on top — the model never owns the stone's pixels
-async function embedStone(jpeg, cutout, dimensions, big, key) {
+async function embedStone(jpeg, cutout, dimensions, scene, key) {
   const { width: W, height: H } = await sharp(jpeg).metadata();
-  let box = stoneBox(W, H, dimensions, big);
-  let lonDeg = 180, dist = big ? 2.2 : 1.15;
+  let box = stoneBox(W, H, dimensions, scene);
+  let lonDeg = 180, dist = scene.D;
   try {
-    const s = await detectSurface(jpeg, key, W, H, big);
-    const surfaceH = big ? 0 : 1.05;                       // m: floor vs pedestal top
+    const s = await detectSurface(jpeg, key, W, H, scene);
+    const surfaceH = scene.surfaceH;                       // m: derived stand top
     const pitch = ((s.y - H / 2) / H) * Math.PI;           // + below horizon
     console.log(`surface detect: x=${s.x} y=${s.y} pitch=${pitch.toFixed(3)} (W=${W} H=${H})`);
     lonDeg = (s.x / W) * 360;                              // trust x even when pitch is shallow
     if (pitch > 0.04) {
-      dist = Math.min(big ? 4 : 3.2, Math.max(big ? 1.2 : 0.6, (1.6 - surfaceH) / Math.tan(pitch)));
+      // detection refines distance, but only within a band around the derived D
+      dist = Math.min(Math.min(4, scene.D * 2), Math.max(Math.max(0.35, scene.D * 0.6), (CAM_H - surfaceH) / Math.tan(pitch)));
       const d = dimensions || {};
       const wcm = d.width_cm || d.height_cm || d.depth_cm || 14;
       const hcm = d.height_cm || wcm * 0.7;
@@ -269,7 +306,7 @@ async function embedStone(jpeg, cutout, dimensions, big, key) {
   } catch (e) {
     console.error("harmonize skipped:", e.message); // plain composite still ships
   }
-  return { pano, lonDeg, dist };
+  return { pano, lonDeg, dist, surfaceH: scene.surfaceH };
 }
 
 const { stoneEmail, send: sendMail } = require("./_email.js");
@@ -382,7 +419,7 @@ module.exports = async (req, res) => {
     const manifest = await fetch(`${host}/stones/manifest.json`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
     meta = manifest.find((s) => s.id === stone) || null;
   }
-  const plan = placement(meta);
+  const plan = sceneFromStone(meta?.dimensions);
   const args = { base, key: KEY, stage: plan.stage, desc };
 
   // dream log — returns the row id so the finished panorama can be attached
@@ -402,15 +439,16 @@ module.exports = async (req, res) => {
 
   // embed the stone into the env (detect surface → composite → crop-harmonize)
   async function withStone(jpeg) {
+    const bare = { pano: jpeg, lonDeg: 180, dist: plan.D, surfaceH: plan.surfaceH };
     const cutoutUrl = row?.images?.cutout;
-    if (!cutoutUrl) return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
+    if (!cutoutUrl) return bare;
     try {
       const c = await fetch(cutoutUrl);
-      if (!c.ok) return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
-      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan.big, KEY);
+      if (!c.ok) return bare;
+      return await embedStone(jpeg, Buffer.from(await c.arrayBuffer()), meta?.dimensions, plan, KEY);
     } catch (e) {
       console.error("embed skipped, serving bare pano:", e.message);
-      return { pano: jpeg, lonDeg: 180, dist: plan.big ? 2.2 : 1.15 };
+      return bare;
     }
   }
 
@@ -449,12 +487,13 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { pano, lonDeg, dist } = await withStone(await generate(args)); // embedded: surface-detected, shadowed, exact pixels
+    const { pano, lonDeg, dist, surfaceH } = await withStone(await generate(args)); // embedded: surface-detected, shadowed, exact pixels
     res.statusCode = 200;
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Stone-Lon", String(Math.round(lonDeg * 10) / 10));   // viewer aligns its 3D layer here
     res.setHeader("X-Stone-Dist", String(Math.round(dist * 100) / 100));
+    res.setHeader("X-Stone-Surface-H", String(Math.round(surfaceH * 100) / 100)); // m — derived stand top
     res.end(pano);
     waitUntil(saveDream(pano).catch(() => {})); // archive the same embedded copy
     return;
