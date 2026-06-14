@@ -11,6 +11,8 @@
 const IMAGE_MODEL = "gemini-3.1-flash-image";
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 
+const { r2put } = require("./_storage.js");
+
 // ---- rate limiter (per-instance only) ----
 const hits = new Map();
 const RL_MAX = 30, RL_WIN = 60 * 60 * 1000;
@@ -82,14 +84,14 @@ async function saveDream({ supabaseUrl, supabaseKey, stone, desc, ip, jpeg }) {
   }).then((r) => (r.ok ? r.json() : [])).then((a) => a[0] || null).catch(() => null);
   if (!row) return null;
   const id = row.id;
-  // upload image
-  const up = await fetch(`${supabaseUrl}/storage/v1/object/stones/dreams/${id}.jpg`, {
-    method: "POST",
-    headers: { ...h, "Content-Type": "image/jpeg", "x-upsert": "true" },
-    body: jpeg,
-  }).catch(() => null);
-  if (!up || !up.ok) return id; // row exists but no image; still return id
-  const imageUrl = `${supabaseUrl}/storage/v1/object/public/stones/dreams/${id}.jpg`;
+  // upload image to R2 (served from cdn.shaym.beauty)
+  let imageUrl;
+  try {
+    imageUrl = await r2put(`dreams/${id}.jpg`, jpeg, "image/jpeg");
+  } catch (e) {
+    console.error("dream image upload:", e.message);
+    return id; // row exists but no image; still return id
+  }
   // patch image URL
   await fetch(`${supabaseUrl}/rest/v1/dreams?id=eq.${id}`, {
     method: "PATCH",

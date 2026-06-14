@@ -21,6 +21,7 @@
 const { setDefaultResultOrder } = require("dns");
 const { setDefaultAutoSelectFamily } = require("net");
 const sharp = require("sharp");
+const { r2put } = require("./_storage.js");
 setDefaultResultOrder("ipv4first");
 setDefaultAutoSelectFamily(false);
 
@@ -67,22 +68,12 @@ Rules:
   }
 }
 
-async function uploadToSupabase(supabaseUrl, serviceKey, path, body, contentType) {
-  const r = await fetch(`${supabaseUrl}/storage/v1/object/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      "Content-Type": contentType,
-      "x-upsert": "true",
-    },
-    body,
-  });
-  if (!r.ok) {
-    const txt = await r.text();
-    throw new Error(`Supabase upload ${path}: ${r.status} ${txt}`);
-  }
-  return `${supabaseUrl}/storage/v1/object/public/${path}`;
+// Kept the name/signature so call sites are unchanged; now writes to R2.
+// The legacy `path` is "stones/<...>" (Supabase bucket + key); strip the
+// bucket prefix so the R2 object key is just "<...>".
+async function uploadToSupabase(_supabaseUrl, _serviceKey, path, body, contentType) {
+  const key = String(path).replace(/^stones\//, "");
+  return r2put(key, body, contentType);
 }
 
 async function ensureWorldsTable(supabaseUrl, serviceKey) {

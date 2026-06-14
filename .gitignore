@@ -4,3 +4,6 @@ node_modules
 .vercel.aurelius.bak/
 archive/
 .env*
+
+pipeline/batch-state.json
+pipeline/batch.log

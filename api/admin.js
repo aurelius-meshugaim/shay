@@ -7,13 +7,15 @@
 //   analyze  {id}                → analysis/brainstorm/design saved to meta
 //   variant  {id, kind}          → one generated variant uploaded to storage
 //   finalize {id}                → status 'available' → appears in gallery
-// New stones live entirely in Supabase (rows + storage bucket "stones");
-// the static manifest keeps serving the two legacy stones.
+// Stone rows live in Supabase; image bytes (originals, cutouts, variants)
+// live in Cloudflare R2 (bucket "shay-stones") served from cdn.shaym.beauty.
 
 const TEXT_MODEL = "gemini-2.5-flash";
 const IMAGE_MODEL = "gemini-3.1-flash-image";
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 const VARIANTS = ["blur", "outdoor", "indoor", "creative"];
+
+const { r2put } = require("./_storage.js");
 
 const sb = () => ({
   url: process.env.SUPABASE_URL,
@@ -40,14 +42,7 @@ async function patch(id, fields) {
 }
 
 async function upload(path, buf) {
-  const { url, headers } = sb();
-  const r = await fetch(`${url}/storage/v1/object/stones/${path}`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "image/jpeg", "x-upsert": "true" },
-    body: buf,
-  });
-  if (!r.ok) throw new Error(`storage upload: ${r.status} ${(await r.text()).slice(0, 200)}`);
-  return `${url}/storage/v1/object/public/stones/${path}`;
+  return r2put(path, buf, "image/jpeg");
 }
 
 async function gemini(model, parts, { imageOut = false } = {}) {
@@ -171,14 +166,7 @@ async function stageCutout(stoneRow) {
     .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
     .png()
     .toBuffer();
-  const { url, headers } = sb();
-  const r = await fetch(`${url}/storage/v1/object/stones/cutouts/${stoneRow.id}.png`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "image/png", "x-upsert": "true" },
-    body: cutout,
-  });
-  if (!r.ok) throw new Error(`cutout upload: ${r.status}`);
-  const publicUrl = `${url}/storage/v1/object/public/stones/cutouts/${stoneRow.id}.png`;
+  const publicUrl = await r2put(`cutouts/${stoneRow.id}.png`, cutout, "image/png");
   await patch(stoneRow.id, { images: { ...(stoneRow.images || {}), cutout: publicUrl } });
   return { cutout: publicUrl };
 }
