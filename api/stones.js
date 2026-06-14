@@ -1,24 +1,16 @@
-// GET /api/stones — the gallery's source of truth.
-// DB (Supabase) owns identity: name, dimensions, status, and the auction
-// state (top offer per stone). The deployed manifest owns assets: variant
-// image paths + captions. This endpoint merges the two; if the DB is
-// unreachable the manifest alone still renders a gallery (degraded, no
-// auction state).
+// GET /api/stones — DB-only source of truth.
+// All stones (including flint + boulder) now live in Supabase: identity, images,
+// variants, captions. stones/manifest.json is no longer read at runtime (files
+// remain in repo as migration artefacts only).
 
 module.exports = async (req, res) => {
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const host = `${proto}://${req.headers.host}`;
   const URL = process.env.SUPABASE_URL, KEY = process.env.SUPABASE_SERVICE_KEY;
-
-  const manifest = await fetch(`${host}/stones/manifest.json`)
-    .then((r) => (r.ok ? r.json() : []))
-    .catch(() => []);
 
   let rows = [], tops = [];
   if (URL && KEY) {
     const h = { apikey: KEY, Authorization: `Bearer ${KEY}` };
     [rows, tops] = await Promise.all([
-      fetch(`${URL}/rest/v1/stones?select=id,name,width_cm,height_cm,depth_cm,dimensions_approx,character,status,images`, { headers: h })
+      fetch(`${URL}/rest/v1/stones?select=id,name,width_cm,height_cm,depth_cm,dimensions_approx,character,status,images&status=eq.available`, { headers: h })
         .then((r) => (r.ok ? r.json() : [])).catch(() => []),
       fetch(`${URL}/rest/v1/offers?select=stone_id,amount_usd&order=amount_usd.desc`, { headers: h })
         .then((r) => (r.ok ? r.json() : [])).catch(() => []),
@@ -28,45 +20,32 @@ module.exports = async (req, res) => {
   const topOffer = {};
   for (const o of tops) if (!(o.stone_id in topOffer)) topOffer[o.stone_id] = Number(o.amount_usd);
 
-  const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  const stones = manifest.map((m) => {
-    const db = byId[m.id];
-    return {
-      id: m.id,
-      name: db?.name || m.name,
-      character: db?.character || m.character,
-      status: db?.status || "available",
-      dimensions: db
-        ? { width_cm: db.width_cm && Number(db.width_cm), height_cm: db.height_cm && Number(db.height_cm), depth_cm: db.depth_cm && Number(db.depth_cm), approx: db.dimensions_approx }
-        : m.dimensions || null,
-      top_offer_usd: topOffer[m.id] ?? null,
-      original: m.original,
-      variants: m.variants,
-      cutout: db?.images?.cutout || null,
-      model_glb: db?.images?.model_glb || null, // 3D GLB — swappable by owner (replace stones/models/<id>.glb)
-    };
-  });
-
-  // DB-native stones (uploaded via admin, images in Supabase Storage)
-  const inManifest = new Set(manifest.map((m) => m.id));
+  const stones = [];
   for (const r of rows) {
-    if (inManifest.has(r.id) || r.status !== "available" || !r.images?.original) continue;
+    if (!r.images?.original) continue; // skip stones with no gallery images
+
     const variants = {};
     for (const k of ["blur", "outdoor", "indoor", "creative"]) {
       if (r.images[k]) variants[k] = { src: r.images[k].src, caption: r.images[k].caption || "" };
     }
     if (Object.keys(variants).length < 4) continue; // incomplete processing
+
     stones.push({
       id: r.id,
       name: r.name,
       character: r.character || "",
       status: r.status,
-      dimensions: { width_cm: r.width_cm && Number(r.width_cm), height_cm: r.height_cm && Number(r.height_cm), depth_cm: r.depth_cm && Number(r.depth_cm), approx: r.dimensions_approx },
+      dimensions: {
+        width_cm: r.width_cm && Number(r.width_cm),
+        height_cm: r.height_cm && Number(r.height_cm),
+        depth_cm: r.depth_cm && Number(r.depth_cm),
+        approx: r.dimensions_approx,
+      },
       top_offer_usd: topOffer[r.id] ?? null,
       original: r.images.original,
       variants,
       cutout: r.images.cutout || null,
-      model_glb: r.images?.model_glb || null,
+      model_glb: r.images.model_glb || null,
     });
   }
 

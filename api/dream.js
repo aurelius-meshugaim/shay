@@ -208,8 +208,22 @@ module.exports = async (req, res) => {
     return res.json({ error: "Unknown stone." });
   }
 
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const stoneUrl = `${proto}://${req.headers.host}/stones/${stone}/original.jpg`;
+  // Resolve stone's original image from DB (all stones including flint+boulder are
+  // now fully in Supabase storage). Fall back to repo URL for dev/emergency only.
+  let stoneUrl = null;
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    const sbH = sbHeaders(SUPABASE_KEY);
+    const stoneRow = await fetch(
+      `${SUPABASE_URL}/rest/v1/stones?id=eq.${stone}&select=images`,
+      { headers: sbH }
+    ).then((r) => (r.ok ? r.json() : [])).then((a) => a[0]).catch(() => null);
+    if (stoneRow?.images?.original) stoneUrl = stoneRow.images.original;
+  }
+  if (!stoneUrl) {
+    // fallback: try repo-served path (dev servers where storage may not be set up)
+    const proto = req.headers["x-forwarded-proto"] || "https";
+    stoneUrl = `${proto}://${req.headers.host}/stones/${stone}/original.jpg`;
+  }
   const stoneRes = await fetch(stoneUrl);
   if (!stoneRes.ok) {
     res.statusCode = 400;
