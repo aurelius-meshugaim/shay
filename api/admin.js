@@ -100,13 +100,17 @@ async function fetchOriginal(stoneRow) {
 
 async function stageAnalyze(stoneRow) {
   const buf = await fetchOriginal(stoneRow);
-  const analysisPrompt = `Analyze the stone in this photo. Return ONLY JSON:
+  const analysisPrompt = `Analyze the stone in this photo.
+Also estimate the stone's real-world HEIGHT in centimeters — the vertical extent of the physical stone as it sits in the photo. Use whatever scale cues are visible (a hand or fingers, ground texture, nearby objects, depth of field, framing). If no reliable cue exists, give your single best estimate for a stone of this apparent type and framing. Return ONE number, never a range.
+Return ONLY JSON:
 {
   "name": "a poetic two-word display name for this stone",
   "colors": ["..."],
   "texture": "...",
   "character": "the stone's personality/mood in one sentence",
-  "distinctive_features": ["..."]
+  "distinctive_features": ["..."],
+  "height_cm": <number — your single best estimate of the stone's height in centimeters>,
+  "height_reasoning": "one short sentence: which scale cue you used"
 }`;
   const analysis = parseJson(await gemini(TEXT_MODEL, [imagePart(buf), { text: analysisPrompt }]), "analysis");
 
@@ -142,8 +146,11 @@ Return ONLY JSON:
   const fields = { meta: { analysis, design } };
   if (!stoneRow.name || stoneRow.name === stoneRow.id) fields.name = analysis.name;
   if (!stoneRow.character) fields.character = analysis.character;
+  // Height is always Gemini-estimated (the upload form no longer collects it).
+  const estH = Number(analysis.height_cm);
+  if (estH > 0 && estH < 10000) { fields.height_cm = estH; fields.dimensions_approx = true; }
   await patch(stoneRow.id, fields);
-  return { name: fields.name || stoneRow.name, character: analysis.character };
+  return { name: fields.name || stoneRow.name, character: analysis.character, height_cm: fields.height_cm ?? null };
 }
 
 // Transparent cutout for the viewer's 3D stone layer: Gemini re-renders the
@@ -209,8 +216,8 @@ module.exports = async (req, res) => {
     if (action === "ping") return res.json({ ok: true });
     if (action === "create") {
       const { name = "", width_cm, height_cm, depth_cm, photos = [] } = req.body;
+      // Height is estimated by Gemini in the analyze stage; width/depth are optional manual extras.
       const dims = [width_cm, height_cm, depth_cm].map((d) => (Number(d) > 0 && Number(d) < 10000 ? Number(d) : null));
-      if (dims.every((d) => d === null)) { res.statusCode = 400; return res.json({ error: "At least one dimension (cm) is required." }); }
       if (!Array.isArray(photos) || photos.length < 1 || photos.length > 3) { res.statusCode = 400; return res.json({ error: "1 to 3 photos." }); }
       const base = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const id = (base || "stone") + "-" + Math.random().toString(36).slice(2, 6);

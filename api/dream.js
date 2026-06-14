@@ -26,7 +26,9 @@ async function generatePano({ key, stoneB64, desc }) {
 
 The scene — the visitor's own home, as they describe it: ${desc}
 
-Critically: the exact stone from the attached photograph must appear in the scene as a treasured displayed object — on a pedestal, mantel, shelf or table at a natural focal point. Preserve the stone's true colors, banding, texture and shape from the photo. Render it at a believable physical size for a collectible mineral specimen.
+Critically: the exact stone from the attached photograph must appear in the scene as a treasured displayed object — on a pedestal, mantel, shelf or table. Preserve the stone's true colors, banding, texture and shape from the photo. Render it at a believable physical size for a collectible mineral specimen.
+
+Distance and framing: place the stone across the room at a comfortable, natural viewing distance — in the mid-ground or against a far wall — so the whole room is visible around it. The stone must NOT be close-up, looming, or filling the foreground; it should read as a small, distant focal point you'd walk toward, never pressed up against the camera.
 
 Style: photorealistic, warm inviting light, the home feels lived-in and personal. No people, no text, no watermarks. Equirectangular projection only — straight vertical lines may curve horizontally as the projection requires.`;
 

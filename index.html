@@ -55,6 +55,7 @@
     .stone .size { margin-top:.3rem; font-size: clamp(.6rem,1.2vw,.7rem); font-weight:500;
       letter-spacing:.18em; color: rgba(255,255,255,.55); text-transform:uppercase; }
     .stone figure {
+      position: relative;
       width: clamp(11rem, 24vw, 16rem); aspect-ratio: 1 / 1;
       border-radius: 18px; overflow: hidden;
       box-shadow: 0 18px 50px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.08) inset;
@@ -255,6 +256,48 @@
       font-family:inherit; font-size:.68rem; font-weight:600; letter-spacing:.12em;
       text-transform:uppercase; color:#06080b; background:linear-gradient(120deg,#fff,var(--c2)); }
 
+    /* ---- info popup (original photo + height ruler) ---- */
+    .info-btn { position:absolute; top:9px; right:9px; z-index:4;
+      width:26px; height:26px; border-radius:50%; border:0; cursor:pointer;
+      font-family:Georgia,"Times New Roman",serif; font-style:italic; font-weight:700;
+      font-size:.92rem; line-height:1; color:#fff; background:rgba(0,0,0,.5);
+      backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 2px 8px rgba(0,0,0,.5); transition:background .2s, transform .2s; }
+    .info-btn:hover { background:rgba(0,0,0,.82); transform:scale(1.12); }
+    .lb-info { top:10px; left:10px; right:auto; }
+
+    .info { position:fixed; inset:0; z-index:20; display:none;
+      align-items:center; justify-content:center; padding:6vh 6vw;
+      background:rgba(4,6,9,.93); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
+    .info.open { display:flex; animation:lbIn .3s ease forwards; }
+    .info-box { display:flex; flex-direction:column; align-items:center; gap:1.3rem; max-width:100%; }
+    .info-name { font-size:clamp(1.2rem,3vw,1.8rem); font-weight:700; color:#fff;
+      letter-spacing:.01em; text-shadow:0 1px 4px rgba(0,0,0,.8); }
+    .info-body { display:flex; align-items:stretch; gap:1.4rem;
+      height:min(62vh,520px); max-width:100%; }
+    .info-img { height:100%; width:auto; max-width:62vw; object-fit:contain;
+      border-radius:12px; box-shadow:0 24px 70px -18px rgba(0,0,0,.8),
+      0 0 0 1px rgba(255,255,255,.08) inset; display:block; }
+    .info-ruler { position:relative; width:60px; flex:0 0 auto;
+      border-left:2px solid rgba(255,255,255,.55); margin:.2rem 0 1.6rem; }
+    .info-ruler .tick { position:absolute; left:0; display:flex; align-items:center; gap:.45rem;
+      transform:translateY(50%); white-space:nowrap; }
+    .info-ruler .tick::before { content:""; display:block; width:8px; height:2px;
+      background:rgba(255,255,255,.55); }
+    .info-ruler .tick.major::before { width:15px; background:rgba(255,255,255,.85); }
+    .info-ruler .tick span { font-size:.62rem; font-weight:500; color:rgba(255,255,255,.7);
+      font-variant-numeric:tabular-nums; }
+    .info-ruler .tick.major span { font-size:.7rem; font-weight:700; color:#fff; }
+    .info-total { position:absolute; left:50%; bottom:calc(100% + .55rem); transform:translateX(-50%);
+      font-size:.72rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+      color:var(--c2); white-space:nowrap; }
+    .info-close { position:fixed; top:18px; right:22px; width:42px; height:42px; border:0;
+      border-radius:50%; background:rgba(0,0,0,.45); color:#fff; font-size:1.5rem; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; z-index:3; }
+    .info-close:hover { background:rgba(0,0,0,.75); }
+    @media(max-width:520px){ .info-body{ height:min(54vh,420px); gap:1rem; } .info-ruler{ width:46px; } }
+
     /* ---- 360 panorama viewer ---- */
     .pano { position:fixed; inset:0; z-index:30; display:none; background:#06080b; }
     .pano.open { display:block; animation:lbIn .3s ease; }
@@ -294,6 +337,7 @@
     <div class="lb-title" id="lbTitle"></div>
     <div class="lb-name" id="lbName"></div>
     <div class="lb-stage" id="lbStage">
+      <button class="info-btn lb-info" aria-label="Stone details" onclick="openInfo(activeStone,event)">i</button>
       <div class="dream-slide" id="dreamSlide">
         <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
         <img class="dream-result" id="dreamResult" alt="Your room" hidden onclick="stepInside(event)" />
@@ -341,6 +385,17 @@
     </div>
   </div>
 
+  <div class="info" id="info" aria-modal="true" role="dialog" aria-label="Stone details">
+    <button class="info-close" aria-label="Close" onclick="closeInfo(event)">&times;</button>
+    <div class="info-box">
+      <div class="info-name" id="infoName"></div>
+      <div class="info-body">
+        <img class="info-img" id="infoImg" alt="" />
+        <div class="info-ruler" id="infoRuler"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="pano" id="pano" aria-modal="true" role="dialog" aria-label="360 view of the stone in your home">
     <div class="pano-title">your home &mdash; 360&deg;</div>
     <button class="pano-close" aria-label="Close 360 view" onclick="closePano()">&times;</button>
@@ -363,7 +418,6 @@
     }
     function slidesFor(s){
       const out=Object.entries(s.variants||{}).map(([k,v])=>({src:v.src,name:VLABEL[k]||k,cap:v.caption||""}));
-      out.push({src:s.original,name:"Original",cap:"The original photograph."});
       out.push({dream:true,src:(s.variants&&s.variants.blur)?s.variants.blur.src:s.original,
                 name:"Your Home",cap:"Coming soon — unless you describe it."});
       return out;
@@ -376,12 +430,15 @@
         card.className='stone'; card.style.animationDelay=(1+i*.25)+'s';
         card.setAttribute('role','button'); card.tabIndex=0;
         card.setAttribute('aria-label','Open '+s.name+' gallery');
-        card.innerHTML='<figure><img src="'+(s.variants?.blur?.src||s.original)+'" alt="'+s.name+'"></figure>'+
+        card.innerHTML='<figure><img src="'+(s.variants?.blur?.src||s.original)+'" alt="'+s.name+'">'+
+          '<button class="info-btn" aria-label="Info about '+s.name+'">i</button></figure>'+
           '<figcaption><div class="name">'+s.name+'</div>'+
           '<div class="size">'+sizeLabel(s.dimensions)+'</div>'+
           '<div class="cap">'+(s.variants?.blur?.caption||'')+'</div></figcaption>';
         card.onclick=()=>openLB(s);
         card.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openLB(s); } };
+        const ib=card.querySelector('.info-btn');
+        if(ib) ib.onclick=(e)=>{ e.stopPropagation(); openInfo(s); };
         host.appendChild(card);
       });
     }
@@ -411,6 +468,47 @@
     function openLB(s){ activeStone=s; buildLB(s); lb.classList.add('open'); show(0); resetOffer();
       document.addEventListener('keydown',lbKey); }
     function closeLB(e){ if(e) e.stopPropagation(); lb.classList.remove('open'); document.removeEventListener('keydown',lbKey); }
+
+    // ---- info popup: original photo + a height ruler to its right ----
+    function fmtCm(v){ return v>=100 ? (+(v/100).toFixed(2))+' m' : v+' cm'; }
+    function buildRuler(h){
+      if(!(h>0)) return '';
+      const step = h<=16?2 : h<=40?5 : h<=100?10 : h<=300?25 : 50;
+      let html='<div class="info-total">'+fmtCm(h)+' tall</div>';
+      let last=0;
+      for(let v=0; v<=h+1e-6; v+=step){
+        const major = v % (step*2) === 0;
+        html+='<div class="tick'+(major?' major':'')+'" style="bottom:'+(v/h*100)+'%"><span>'+v+'</span></div>';
+        last=v;
+      }
+      // top tick at the exact height, if the step grid didn't already land there
+      if(Math.abs(last-h)>1e-6){
+        const top=Number.isInteger(h)?h:+h.toFixed(1);
+        html+='<div class="tick major" style="bottom:100%"><span>'+top+'</span></div>';
+      }
+      return html;
+    }
+    function openInfo(s,e){
+      if(e) e.stopPropagation();
+      if(!s) return;
+      document.getElementById('infoName').textContent=s.name||'';
+      const img=document.getElementById('infoImg');
+      const osrc=(typeof s.original==='string'?s.original:(s.original&&s.original.src))||s.variants?.blur?.src||'';
+      img.src=osrc;
+      img.alt=(s.name||'Stone')+' — original';
+      const h=(s.dimensions&&s.dimensions.height_cm>0)?s.dimensions.height_cm:0;
+      const ruler=document.getElementById('infoRuler');
+      if(h>0){ ruler.style.display='block'; ruler.innerHTML=buildRuler(h); }
+      else { ruler.style.display='none'; ruler.innerHTML=''; }
+      document.getElementById('info').classList.add('open');
+      document.addEventListener('keydown',infoKey,true);
+    }
+    function closeInfo(e){ if(e) e.stopPropagation();
+      document.getElementById('info').classList.remove('open');
+      document.removeEventListener('keydown',infoKey,true); }
+    function infoKey(e){ if(e.key==='Escape'){ e.stopImmediatePropagation(); e.stopPropagation(); closeInfo(); } }
+    document.getElementById('info').addEventListener('click',e=>{ if(e.target.id==='info') closeInfo(); });
+    window.openInfo=openInfo; window.closeInfo=closeInfo;
 
     // DB-backed source of truth; manifest is the fallback
     fetch('/api/stones').then(r=>r.ok?r.json():Promise.reject())
@@ -467,7 +565,7 @@
     // ---- dream: describe your home → Gemini 360 panorama ----
     const DREAM_LINES = ["Reading your words…","Raising the walls…","Pouring the light…",
                          "Placing the stone…","Stitching the horizon…","Almost there…"];
-    let dreaming=false, emailCapable=null, emailTimer=null;
+    let dreaming=false, emailCapable=null, emailTimer=null, pendingEmail=null;
     // probe email capability once on load
     fetch('/api/dream').then(r=>r.json()).then(c=>{ emailCapable=!!c.emailDelivery; }).catch(()=>{ emailCapable=false; });
 
@@ -533,25 +631,31 @@
 
     async function emailDream(e){
       if(e) e.stopPropagation();
-      const addr=document.getElementById('dreamEmailAddr').value.trim(),
-            box=document.getElementById('dreamEmail');
-      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return;
-      // if the dream already finished, use emailExisting; otherwise send mid-dream (re-gen path)
+      const box=document.getElementById('dreamEmail'),
+            addr=document.getElementById('dreamEmailAddr').value.trim(),
+            hint=box.querySelector('.dream-email-hint'),
+            go=box.querySelector('.dream-email-go');
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)){
+        if(hint){ hint.textContent='Enter a valid email and we’ll send it over.'; hint.style.color='#ff9d9d'; }
+        document.getElementById('dreamEmailAddr').focus();
+        return;                          // was: silent return → looked like "nothing happens"
+      }
       const r=activeStone&&dreamResults[activeStone.id];
       const dreamId=r&&r.dreamId;
+      if(go){ go.disabled=true; go.textContent='…'; }   // immediate feedback
+      if(!dreamId){
+        // dream still rendering — capture the address; startDream emails it the
+        // moment the id lands (no wasteful second generation).
+        pendingEmail=addr;
+        box.innerHTML='<div class="dream-email-hint">Perfect — we’ll email it the moment it’s ready. You can close this and go.</div>';
+        return;
+      }
       try{
-        let resp;
-        if(dreamId){
-          resp=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({ emailExisting:dreamId, email:addr }) });
-        } else {
-          const desc=document.getElementById('dreamDesc').value.trim();
-          resp=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({ stone:activeStone?activeStone.id:'flint', description:desc, email:addr }) });
-        }
+        const resp=await fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ emailExisting:dreamId, email:addr }) });
         const d=await resp.json().catch(()=>({}));
         box.innerHTML='<div class="dream-email-hint">'+
-          (resp.ok ? 'On its way — check your inbox in a couple of minutes. You can keep waiting here too.'
+          (resp.ok ? 'On its way — check your inbox in a minute or two.'
                    : (d.error||'Email delivery is unavailable right now.'))+'</div>';
       }catch(_){
         box.innerHTML='<div class="dream-email-hint">Email delivery is unavailable right now.</div>';
@@ -584,10 +688,16 @@
         document.getElementById('dreamEmail').hidden=true;
         const old=activeStone&&dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
         if(activeStone) dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), dreamId };
+        // if the visitor asked to be emailed while it rendered, send it now (one generation, real email)
+        if(pendingEmail && dreamId){
+          fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ emailExisting:dreamId, email:pendingEmail }) }).catch(()=>{});
+          pendingEmail=null;
+        }
         renderDreamResult();
         await openPano(blob);
       }catch(err){
-        clearInterval(ticker); clearTimeout(emailTimer);
+        clearInterval(ticker); clearTimeout(emailTimer); pendingEmail=null;
         msg.textContent=err.message||'Something went wrong — try again.';
         msg.className='dream-msg err';
       }finally{ dreaming=false; go.disabled=false; dreamSlide.classList.remove('dreaming'); show(idx); }
