@@ -580,10 +580,14 @@
     let three=null, panoState=null;
     // UMD builds of three were deprecated at r150 and the legacy build/three.min.js
     // path can disappear from a CDN without warning — which would silently kill
-    // "step inside". Load the maintained UMD bundle (three.umd@<0.160) and fall
-    // back to a second CDN if the first is blocked/slow. Never cache a *rejected*
-    // promise: a one-off network blip must not permanently break the viewer.
+    // "step inside". So we SELF-HOST the maintained three@0.149.0 UMD build in
+    // /vendor and load it FIRST — zero third-party-CDN dependency for the happy
+    // path. The CDN chain (jsdelivr → unpkg → legacy r160) stays only as a
+    // last-resort fallback in case the vendored file is somehow blocked/missing.
+    // Never cache a *rejected* promise: a one-off network blip must not
+    // permanently break the viewer.
     const THREE_SOURCES=[
+      '/vendor/three.min.js',
       'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
       'https://unpkg.com/three@0.149.0/build/three.min.js',
       'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
