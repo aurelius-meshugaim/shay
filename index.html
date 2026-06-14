@@ -215,7 +215,8 @@
       letter-spacing:.03em; color:#fff; text-shadow:0 2px 12px rgba(0,0,0,.9);
       animation:dreamPulse 2.6s ease-in-out infinite; z-index:2; }
     @keyframes dreamPulse { 0%,100%{opacity:1;} 50%{opacity:.5;} }
-    .dream-slide.dreaming .dream-email { position:relative; z-index:1; }
+    .dream-slide.dreaming .dream-email { position:absolute; left:50%; top:calc(50% + 4.2rem); transform:translateX(-50%);
+      width:min(86%,24rem); z-index:3; }
 
     /* after a dream: the slide shows the room photo — click to re-enter */
     .lb-stage img.dream-result { position:absolute; inset:0; width:100%; height:100%;
@@ -227,8 +228,8 @@
       background:rgba(4,6,9,.55); border-radius:14px; backdrop-filter:blur(4px); }
     .dream-slide.has-result.dreaming .dream-enter,
     .dream-slide.has-result.dreaming .dream-again { display:none; }
-    .dream-enter { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;
-      padding:.6rem 1.5rem; border-radius:999px; pointer-events:none;
+    .dream-enter { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:3;
+      padding:.6rem 1.5rem; border-radius:999px; pointer-events:auto; cursor:pointer;
       font-size:.7rem; font-weight:600; letter-spacing:.3em; text-indent:.3em; text-transform:uppercase;
       color:#fff; background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
       border:1px solid rgba(255,255,255,.3); transition:opacity .3s; }
@@ -295,8 +296,8 @@
     <div class="lb-stage" id="lbStage">
       <div class="dream-slide" id="dreamSlide">
         <img class="dream-bg" src="stones/flint/indoor.jpg" alt="" aria-hidden="true" />
-        <img class="dream-result" id="dreamResult" alt="Your room" hidden />
-        <div class="dream-enter" id="dreamEnter" hidden>step inside &mdash; 360&deg;</div>
+        <img class="dream-result" id="dreamResult" alt="Your room" hidden onclick="stepInside(event)" />
+        <div class="dream-enter" id="dreamEnter" hidden onclick="stepInside(event)">step inside &mdash; 360&deg;</div>
         <button class="dream-again" id="dreamAgain" hidden onclick="regenDream(event)">&#8635;&nbsp;dream it again</button>
         <div class="dream-panel">
           <div class="dream-soon">coming soon</div>
@@ -487,6 +488,23 @@
         tb.src=activeStone.variants?.blur?.src||activeStone.original;
       }
     }
+
+    // "step inside" — direct, reliable re-entry (don't rely on click-bubbling
+    // through the result image, which silently swallowed the click).
+    function stepInside(e){
+      if(e) e.stopPropagation();
+      if(dreaming) return;
+      const r=activeStone&&dreamResults[activeStone.id];
+      if(!r) return;
+      const de=document.getElementById('dreamEnter');
+      const label=de.innerHTML;
+      openPano(r.blob).catch(err=>{
+        console.error('step inside failed:', err);
+        de.textContent='couldn’t open — tap to retry';
+        setTimeout(()=>{ de.innerHTML=label; }, 2600);
+      });
+    }
+    window.stepInside=stepInside;
 
     // clicking a result slide re-enters the pano
     dreamSlide.addEventListener('click',(e)=>{
