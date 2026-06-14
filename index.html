@@ -459,8 +459,8 @@
       fetch('/api/dream?id='+encodeURIComponent(dreamParam))
         .then(r=>r.ok?r.json():Promise.reject())
         .then(d=>fetch(d.image)).then(r=>r.ok?r.blob():Promise.reject())
-        .then(blob=>{ activeStone=null; openPano(blob); })
-        .catch(()=>{});
+        .then(blob=>{ activeStone=null; return openPano(blob); })
+        .catch(()=>{ alert('Could not open this 360 view. Please refresh and try again.'); });
     }
 
     // ---- dream: describe your home → Gemini 360 panorama ----
@@ -494,7 +494,11 @@
       if(e.target.closest('.dream-again')||e.target.closest('.dream-email')) return;
       e.stopPropagation();
       const r=activeStone&&dreamResults[activeStone.id];
-      if(r) openPano(r.blob);
+      if(r) openPano(r.blob).catch(err=>{
+        const msg=document.getElementById('dreamMsg');
+        msg.textContent=err.message||'Could not open the 360 view — please try again.';
+        msg.className='dream-msg err';
+      });
     });
 
     function regenDream(e){
@@ -574,15 +578,37 @@
     // ---- 360 viewer (Three.js, lazy-loaded) ----
     const pano=document.getElementById('pano');
     let three=null, panoState=null;
+    // UMD builds of three were deprecated at r150 and the legacy build/three.min.js
+    // path can disappear from a CDN without warning — which would silently kill
+    // "step inside". Load the maintained UMD bundle (three.umd@<0.160) and fall
+    // back to a second CDN if the first is blocked/slow. Never cache a *rejected*
+    // promise: a one-off network blip must not permanently break the viewer.
+    const THREE_SOURCES=[
+      'https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js',
+      'https://unpkg.com/three@0.149.0/build/three.min.js',
+      'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js',
+    ];
+    function loadScript(src){
+      return new Promise((ok,fail)=>{
+        const s=document.createElement('script');
+        s.src=src; s.async=true;
+        s.onload=()=>window.THREE?ok():fail(new Error('loaded but no THREE'));
+        s.onerror=()=>fail(new Error('Could not load '+src));
+        document.head.appendChild(s);
+      });
+    }
     function loadThree(){
       if(window.THREE) return Promise.resolve();
       if(three) return three;
-      three=new Promise((ok,fail)=>{
-        const s=document.createElement('script');
-        s.src='https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js';
-        s.onload=ok; s.onerror=()=>fail(new Error('Could not load the 360 viewer.'));
-        document.head.appendChild(s);
-      });
+      three=(async()=>{
+        let lastErr;
+        for(const src of THREE_SOURCES){
+          try{ await loadScript(src); if(window.THREE) return; }
+          catch(e){ lastErr=e; }
+        }
+        three=null; // clear cache so a later click can retry from scratch
+        throw lastErr||new Error('Could not load the 360 viewer.');
+      })();
       return three;
     }
     async function openPano(blob){
