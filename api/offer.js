@@ -47,8 +47,9 @@ module.exports = async (req, res) => {
       .then((d) => d?.stones?.find((s) => s.id === stone))
       .catch(() => null);
     const name = info?.name || stone;
-    const img = info?.variants?.blur?.src
-      ? (info.variants.blur.src.startsWith("http") ? info.variants.blur.src : `https://shaym.beauty/${info.variants.blur.src}`)
+    const heroSrc = info?.looks?.[0]?.src || info?.original || null;
+    const img = heroSrc
+      ? (heroSrc.startsWith("http") ? heroSrc : `https://shaym.beauty/${heroSrc}`)
       : null;
     const usd = "$" + amount.toLocaleString("en-US", { maximumFractionDigits: 0 });
     const sizeRow = info?.dimensions

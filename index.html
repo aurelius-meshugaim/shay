@@ -414,10 +414,17 @@
       const v=d[pick[0]];
       return (v>=100 ? (v/100).toFixed(1).replace(/\.0$/,'')+" m" : v+" cm") + " " + pick[1];
     }
+    function heroSrc(s){
+      return (s.looks&&s.looks[0]&&s.looks[0].src)
+        || (typeof s.original==='string'?s.original:(s.original&&s.original.src)) || '';
+    }
+    function dreamBg(s){
+      const ind=(s.looks||[]).find(l=>l.kind==='indoor');
+      return (ind&&ind.src) || heroSrc(s);
+    }
     function slidesFor(s){
-      const out=Object.entries(s.variants||{}).map(([k,v])=>({src:v.src,name:VLABEL[k]||k,cap:v.caption||""}));
-      out.push({dream:true,src:(s.variants&&s.variants.blur)?s.variants.blur.src:s.original,
-                name:"Your Home",cap:"Coming soon — unless you describe it."});
+      const out=(s.looks||[]).map(v=>({src:v.src,name:v.name||VLABEL[v.kind]||'Look',cap:v.caption||""}));
+      out.push({dream:true,src:dreamBg(s),name:"Your Home",cap:"See it in your home — describe a room."});
       return out;
     }
     function renderCards(){
@@ -428,11 +435,11 @@
         card.className='stone'; card.style.animationDelay=(1+i*.25)+'s';
         card.setAttribute('role','button'); card.tabIndex=0;
         card.setAttribute('aria-label','Open '+s.name+' gallery');
-        card.innerHTML='<figure><img src="'+(s.variants?.blur?.src||s.original)+'" alt="'+s.name+'">'+
+        card.innerHTML='<figure><img src="'+heroSrc(s)+'" alt="'+s.name+'">'+
           '<button class="info-btn" aria-label="Info about '+s.name+'">i</button></figure>'+
           '<figcaption><div class="name">'+s.name+'</div>'+
           '<div class="size">'+sizeLabel(s.dimensions)+'</div>'+
-          '<div class="cap">'+(s.variants?.blur?.caption||'')+'</div></figcaption>';
+          '<div class="cap">'+((s.looks&&s.looks[0]&&s.looks[0].caption)||'')+'</div></figcaption>';
         card.onclick=()=>openLB(s);
         card.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openLB(s); } };
         const ib=card.querySelector('.info-btn');
@@ -445,7 +452,7 @@
       els.forEach(el=>{ if(el!==dreamSlide) el.remove(); });
       els=[]; thumbs.innerHTML='';
       document.getElementById('lbTitle').textContent=s.name;
-      dreamSlide.querySelector('.dream-bg').src=s.variants?.indoor?.src||s.original;
+      dreamSlide.querySelector('.dream-bg').src=dreamBg(s);
       renderDreamResult();
       slides.forEach((v,i)=>{
         if(v.dream){ els.push(dreamSlide); }
@@ -491,7 +498,7 @@
       if(!s) return;
       document.getElementById('infoName').textContent=s.name||'';
       const img=document.getElementById('infoImg');
-      const osrc=(typeof s.original==='string'?s.original:(s.original&&s.original.src))||s.variants?.blur?.src||'';
+      const osrc=(typeof s.original==='string'?s.original:(s.original&&s.original.src))||heroSrc(s)||'';
       img.src=osrc;
       img.alt=(s.name||'Stone')+' — original';
       const h=(s.dimensions&&s.dimensions.height_cm>0)?s.dimensions.height_cm:0;
@@ -581,7 +588,7 @@
         document.getElementById('dreamResult').src=r.url;
         if(tb) tb.src=r.url;
       } else if(tb&&activeStone){
-        tb.src=activeStone.variants?.blur?.src||activeStone.original;
+        tb.src=dreamBg(activeStone);
       }
     }
 

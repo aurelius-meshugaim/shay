@@ -20,15 +20,25 @@ module.exports = async (req, res) => {
   const topOffer = {};
   for (const o of tops) if (!(o.stone_id in topOffer)) topOffer[o.stone_id] = Number(o.amount_usd);
 
+  const LABEL = { blur: "Sophisticated Blur", outdoor: "Outdoor", indoor: "Indoor", creative: "Creative" };
   const stones = [];
   for (const r of rows) {
-    if (!r.images?.original) continue; // skip stones with no gallery images
+    const img = r.images || {};
+    if (!img.original) continue; // skip stones with no gallery images
 
-    const variants = {};
-    for (const k of ["blur", "outdoor", "indoor", "creative"]) {
-      if (r.images[k]) variants[k] = { src: r.images[k].src, caption: r.images[k].caption || "" };
+    // Looks: prefer the new variable-length array; else synthesize from the
+    // legacy named variants (blur/outdoor/indoor/creative) so old stones work.
+    let looks = [];
+    if (Array.isArray(img.looks) && img.looks.length) {
+      looks = img.looks
+        .filter((l) => l && l.src)
+        .map((l) => ({ src: l.src, caption: l.caption || "", kind: l.kind || "", name: l.name || LABEL[l.kind] || "Look" }));
+    } else {
+      for (const k of ["blur", "outdoor", "indoor", "creative"]) {
+        if (img[k] && img[k].src) looks.push({ src: img[k].src, caption: img[k].caption || "", kind: k, name: LABEL[k] });
+      }
     }
-    if (Object.keys(variants).length < 4) continue; // incomplete processing
+    if (!looks.length) continue; // incomplete processing
 
     stones.push({
       id: r.id,
@@ -42,10 +52,10 @@ module.exports = async (req, res) => {
         approx: r.dimensions_approx,
       },
       top_offer_usd: topOffer[r.id] ?? null,
-      original: r.images.original,
-      variants,
-      cutout: r.images.cutout || null,
-      model_glb: r.images.model_glb || null,
+      original: img.original,
+      looks,
+      cutout: img.cutout || null,
+      model_glb: img.model_glb || null,
     });
   }
 
