@@ -30,7 +30,7 @@ The scene — the visitor's own home, as they describe it: ${desc}
 
 Critically: the exact stone from the attached photograph must appear in the scene as a treasured displayed object — on a pedestal, mantel, shelf or table. Preserve the stone's true colors, banding, texture and shape from the photo. Render it at a believable physical size for a collectible mineral specimen.
 
-Distance and framing: place the stone across the room at a comfortable, natural viewing distance — in the mid-ground or against a far wall — so the whole room is visible around it. The stone must NOT be close-up, looming, or filling the foreground; it should read as a small, distant focal point you'd walk toward, never pressed up against the camera.
+Distance and framing (strict): the stone must always sit at least several metres away from the viewer, across the room — on a far pedestal, mantel, shelf or against a distant wall — with clear, open floor space between the camera and the stone. There must ALWAYS be a visible gap of empty room between the viewer and the stone; it must never be near, never loom, never fill or crowd the foreground, never sit just in front of the camera. It should read as a SMALL, distant focal point — occupying only a modest portion of the view — that you would have to walk across the room to reach. Err on the side of placing it too far rather than too close.
 
 Placement in the frame (important): position the stone at the exact HORIZONTAL CENTER of the equirectangular image (its middle column) and at the viewer's eye level (the vertical middle / horizon line). Someone entering the panorama looking straight ahead must see the stone centred dead-ahead in their view.
 

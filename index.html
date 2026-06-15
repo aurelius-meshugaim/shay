@@ -200,6 +200,24 @@
       color:var(--c2); }
     .dream-msg.err { color:#ff9d9d; font-style:normal; }
 
+    /* ---- cookie / local-storage notice (low banner) ---- */
+    .cookie-bar { position:fixed; left:50%; bottom:18px; z-index:60;
+      transform:translateX(-50%); display:flex; align-items:center; gap:16px;
+      max-width:min(640px,calc(100vw - 24px)); padding:13px 18px; border-radius:16px;
+      background:rgba(10,13,18,.92); border:1px solid rgba(255,255,255,.12);
+      box-shadow:0 14px 50px -10px rgba(0,0,0,.7); backdrop-filter:blur(10px);
+      color:var(--c2); font-size:.82rem; line-height:1.5; font-weight:300;
+      opacity:0; translate:0 14px; transition:opacity .45s ease, translate .45s ease; }
+    .cookie-bar.show { opacity:1; translate:0 0; }
+    .cookie-bar b { font-weight:600; color:#fff; }
+    .cookie-bar .cookie-ok { flex:0 0 auto; border:0; cursor:pointer;
+      padding:.5rem 1.2rem; border-radius:999px; font-family:inherit; font-size:.7rem;
+      font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:#06080b;
+      background:linear-gradient(120deg,#fff,var(--c2) 70%,var(--c1));
+      transition:transform .2s; }
+    .cookie-bar .cookie-ok:hover { transform:translateY(-2px); }
+    @media (max-width:480px){ .cookie-bar { flex-direction:column; text-align:center; gap:11px; bottom:12px; } }
+
     /* while dreaming: the "working on" words overcome the explanation; the
        visitor's prompt box blurs behind them */
     .dream-slide.dreaming .dream-soon,
@@ -409,6 +427,11 @@
     <div class="pano-hint">drag to look around</div>
   </div>
 
+  <div class="cookie-bar" id="cookieBar" hidden>
+    <span>We keep <b>your dreams</b> on this device so they're waiting for you when you come back &mdash; nothing leaves your browser.</span>
+    <button class="cookie-ok" id="cookieOk">Got it</button>
+  </div>
+
   <script>
     const VLABEL = { blur:"Sophisticated Blur", outdoor:"Outdoor", indoor:"Indoor", creative:"Creative" };
     const lb=document.getElementById('lb'), stage=document.getElementById('lbStage'),
@@ -480,7 +503,7 @@
       [...thumbs.children].forEach((b,k)=>b.classList.toggle('on',k===idx));
       nameEl.textContent=slides[idx].name; cap.textContent=slides[idx].cap; }
     function openLB(s){ activeStone=s; buildLB(s); lb.classList.add('open'); show(0); resetOffer();
-      document.addEventListener('keydown',lbKey); }
+      document.addEventListener('keydown',lbKey); restoreDream(s); }
     function closeLB(e){ if(e) e.stopPropagation(); lb.classList.remove('open'); document.removeEventListener('keydown',lbKey); }
 
     // ---- info popup: original photo + a height ruler to its right ----
@@ -571,8 +594,7 @@
     if(dreamParam){
       fetch('/api/dream?id='+encodeURIComponent(dreamParam))
         .then(r=>r.ok?r.json():Promise.reject())
-        .then(d=>fetch(d.image)).then(r=>r.ok?r.blob():Promise.reject())
-        .then(blob=>{ activeStone=null; return openPano(blob, dreamParam); })
+        .then(d=>{ if(!d||!d.image) return Promise.reject(); activeStone=null; return openPano(d.image, dreamParam); })
         .catch(()=>{ alert('Could not open this 360 view. Please refresh and try again.'); });
     }
 
@@ -583,8 +605,31 @@
     // probe email capability once on load
     fetch('/api/dream').then(r=>r.json()).then(c=>{ emailCapable=!!c.emailDelivery; }).catch(()=>{ emailCapable=false; });
 
-    // stoneId → { blob, url, desc, dreamId }
+    // stoneId → { blob?, url, desc, dreamId }
     const dreamResults={};
+
+    // ---- per-browser dream persistence ----------------------------------
+    // The dream itself lives on the server (DB row + R2 image). The browser
+    // only remembers which dream is "yours" for each stone, so a refresh can
+    // pull it back instead of losing it.
+    const DREAMS_KEY='shay_dreams_v1';
+    function savedDreams(){ try{ return JSON.parse(localStorage.getItem(DREAMS_KEY)||'{}'); }catch(_){ return {}; } }
+    function writeDreams(m){ try{ localStorage.setItem(DREAMS_KEY, JSON.stringify(m)); }catch(_){} }
+    function rememberDream(stoneId,dreamId,desc){ if(!stoneId||!dreamId) return;
+      const m=savedDreams(); m[stoneId]={ dreamId, desc:desc||'', ts:Date.now() }; writeDreams(m); }
+    function forgetDream(stoneId){ const m=savedDreams(); if(m[stoneId]){ delete m[stoneId]; writeDreams(m); } }
+    // On opening a stone, if it has a saved dream we don't already hold in
+    // memory, fetch its server-side image and re-populate the result slide.
+    async function restoreDream(s){
+      if(!s || dreamResults[s.id]) return;
+      const saved=savedDreams()[s.id]; if(!saved||!saved.dreamId) return;
+      try{
+        const d=await fetch('/api/dream?id='+encodeURIComponent(saved.dreamId)).then(r=>r.ok?r.json():null);
+        if(!d||!d.image){ forgetDream(s.id); return; }   // gone server-side → drop the stale pointer
+        dreamResults[s.id]={ url:d.image, desc:d.description||saved.desc||'', dreamId:saved.dreamId };
+        if(activeStone&&activeStone.id===s.id) renderDreamResult();
+      }catch(_){}
+    }
 
     function renderDreamResult(){
       const r=activeStone&&dreamResults[activeStone.id];
@@ -610,7 +655,7 @@
       if(!r) return;
       const de=document.getElementById('dreamEnter');
       const label=de.innerHTML;
-      openPano(r.blob, r.dreamId).catch(err=>{
+      openPano(r.url, r.dreamId).catch(err=>{
         console.error('step inside failed:', err);
         de.textContent='couldn’t open — tap to retry';
         setTimeout(()=>{ de.innerHTML=label; }, 2600);
@@ -624,7 +669,7 @@
       if(e.target.closest('.dream-again')||e.target.closest('.dream-email')) return;
       e.stopPropagation();
       const r=activeStone&&dreamResults[activeStone.id];
-      if(r) openPano(r.blob, r.dreamId).catch(err=>{
+      if(r) openPano(r.url, r.dreamId).catch(err=>{
         const msg=document.getElementById('dreamMsg');
         msg.textContent=err.message||'Could not open the 360 view — please try again.';
         msg.className='dream-msg err';
@@ -635,7 +680,8 @@
       if(e) e.stopPropagation();
       if(dreaming) return;
       const r=activeStone&&dreamResults[activeStone.id];
-      if(r){ URL.revokeObjectURL(r.url); delete dreamResults[activeStone.id]; }
+      if(r){ if(r.url&&r.url.indexOf('blob:')===0) URL.revokeObjectURL(r.url); delete dreamResults[activeStone.id]; }
+      if(activeStone) forgetDream(activeStone.id);
       document.getElementById('dreamDesc').value='';
       document.getElementById('dreamMsg').textContent='';
       document.getElementById('dreamMsg').className='dream-msg';
@@ -700,8 +746,11 @@
         const dreamId=r.headers.get('x-dream-id')||null;
         clearInterval(ticker); clearTimeout(emailTimer); msg.textContent='';
         document.getElementById('dreamEmail').hidden=true;
-        const old=activeStone&&dreamResults[activeStone.id]; if(old) URL.revokeObjectURL(old.url);
-        if(activeStone) dreamResults[activeStone.id]={ blob, desc, url:URL.createObjectURL(blob), dreamId };
+        const old=activeStone&&dreamResults[activeStone.id];
+        if(old&&old.url&&old.url.indexOf('blob:')===0) URL.revokeObjectURL(old.url);
+        const objUrl=URL.createObjectURL(blob);
+        if(activeStone){ dreamResults[activeStone.id]={ blob, desc, url:objUrl, dreamId };
+          if(dreamId) rememberDream(activeStone.id, dreamId, desc); }
         // if the visitor asked to be emailed while it rendered, send it now (one generation, real email)
         if(pendingEmail && dreamId){
           fetch('/api/dream',{ method:'POST', headers:{'Content-Type':'application/json'},
@@ -709,7 +758,7 @@
           pendingEmail=null;
         }
         renderDreamResult();
-        await openPano(blob, dreamId);
+        await openPano(objUrl, dreamId);
       }catch(err){
         clearInterval(ticker); clearTimeout(emailTimer); pendingEmail=null;
         msg.textContent=err.message||'Something went wrong — try again.';
@@ -758,15 +807,22 @@
       return three;
     }
     let panoShareId=null;
-    async function openPano(blob, shareId){
+    // src is a URL string: a same-origin object URL (a freshly generated dream)
+    // or the cross-origin cdn URL of a saved dream — R2 CORS now permits the
+    // WebGL texture load either way.
+    async function openPano(src, shareId){
       panoShareId = shareId || null;
       const shareBtn=document.getElementById('panoShare');
       shareBtn.classList.toggle('show', !!panoShareId);
       document.getElementById('panoShareLabel').textContent='Share';
       await loadThree();
-      const url=URL.createObjectURL(blob);
+      // For cross-origin cdn images the WebGL texture load requires CORS. A
+      // stable cache-bust gives a fresh Cloudflare cache key that always carries
+      // the Access-Control-Allow-Origin header (avoids pre-CORS poisoned entries).
+      const url = /^https?:/.test(src) ? src + (src.indexOf('?')<0?'?':'&') + 'v=2' : src;
+      const loader=new THREE.TextureLoader(); loader.setCrossOrigin('anonymous');
       const tex=await new Promise((ok,fail)=>{
-        new THREE.TextureLoader().load(url, t=>{ t.colorSpace=THREE.SRGBColorSpace; ok(t); },
+        loader.load(url, t=>{ t.colorSpace=THREE.SRGBColorSpace; ok(t); },
           undefined, ()=>fail(new Error('Could not read the panorama.')));
       });
       const img=tex.image, coverage=Math.min(1, (2*img.height)/img.width);
@@ -803,8 +859,10 @@
       const onResize=()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();
         renderer.setSize(innerWidth,innerHeight); };
       addEventListener('resize',onResize);
+      // Note: we don't revokeObjectURL(url) here — for fresh dreams the object
+      // URL is shared with the result thumbnail and must outlive the viewer.
       panoState={ destroy(){ cancelAnimationFrame(raf); removeEventListener('resize',onResize);
-        renderer.dispose(); tex.dispose(); geo.dispose(); el.remove(); URL.revokeObjectURL(url); } };
+        renderer.dispose(); tex.dispose(); geo.dispose(); el.remove(); } };
       pano.classList.add('open'); frame();
     }
     function closePano(){
@@ -828,6 +886,19 @@
     document.addEventListener('keydown', e=>{
       if(e.key==='Escape' && pano.classList.contains('open')){ e.stopPropagation(); closePano(); }
     }, true);
+
+    // ---- cookie / local-storage notice ----
+    (function(){
+      const KEY='shay_consent', bar=document.getElementById('cookieBar');
+      if(!bar) return;
+      let acked=true; try{ acked=localStorage.getItem(KEY)==='1'; }catch(_){ acked=true; }
+      if(acked) return;                       // already acknowledged (or storage blocked)
+      bar.hidden=false; requestAnimationFrame(()=>bar.classList.add('show'));
+      document.getElementById('cookieOk').onclick=()=>{
+        try{ localStorage.setItem(KEY,'1'); }catch(_){}
+        bar.classList.remove('show'); setTimeout(()=>{ bar.hidden=true; }, 450);
+      };
+    })();
   </script>
 </body>
 </html>
