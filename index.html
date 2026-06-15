@@ -10,7 +10,7 @@
   <style>
     :root { --c1:#9fb4c8; --c2:#d7e2ec; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; background: #06080b;
+    html, body { min-height: 100%; overflow-x: hidden; background: #06080b;
       font-family: "Inter","Helvetica Neue",Helvetica,Arial,sans-serif;
       -webkit-font-smoothing: antialiased; }
 
@@ -31,9 +31,9 @@
       background: radial-gradient(ellipse at center,
         rgba(6,8,11,0) 35%, rgba(6,8,11,0.72) 100%); }
 
-    .wrap { position: fixed; inset: 0; z-index: 2; display: flex;
+    .wrap { position: relative; z-index: 2; min-height: 100vh; width: 100%; display: flex;
       flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; padding: 6vh 6vw; gap: clamp(1.4rem, 3vh, 2.4rem); }
+      text-align: center; padding: 8vh 6vw; gap: clamp(1.4rem, 3vh, 2.4rem); }
 
     .title { font-size: clamp(2.8rem, 9vw, 6.5rem); font-weight: 800;
       letter-spacing: -0.03em; line-height: 1;
@@ -71,16 +71,6 @@
     .stone .cap { margin-top: .35rem; font-size: clamp(.72rem,1.5vw,.85rem);
       font-weight: 300; font-style: italic; color: rgba(255,255,255,.7);
       text-shadow: 0 1px 2px rgba(0,0,0,.8); }
-
-    .soon { display: flex; align-items: center; gap: 1rem;
-      font-size: clamp(.7rem,1.4vw,.82rem); font-weight: 500;
-      letter-spacing: .55em; text-indent: .55em; text-transform: uppercase;
-      color: rgba(255,255,255,.9); text-shadow: 0 1px 3px rgba(0,0,0,.85);
-      opacity: 0; animation: rise 1.3s cubic-bezier(0.16,1,0.3,1) 1.3s forwards; }
-    .soon::before, .soon::after { content: ""; display: block;
-      width: clamp(2rem,6vw,4rem); height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.4)); }
-    .soon::after { background: linear-gradient(90deg, rgba(255,255,255,.4), transparent); }
 
     @keyframes rise {
       from { opacity: 0; transform: translateY(26px); filter: blur(6px); }
@@ -325,11 +315,9 @@
 
   <main class="wrap">
     <h1 class="title">Stones</h1>
-    <p class="lead">A quiet collection — each stone re-scened through its own skies. One is ready.</p>
+    <p class="lead">A quiet collection — each stone re-scened through its own skies.</p>
 
     <div class="stones" id="stoneCards"></div>
-
-    <div class="soon">more coming soon</div>
   </main>
 
   <div class="lb" id="lb" aria-modal="true" role="dialog">
