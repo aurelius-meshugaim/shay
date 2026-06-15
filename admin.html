@@ -2,58 +2,102 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<meta name="robots" content="noindex,nofollow" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
 <title>Stones — Admin</title>
-<link rel="icon" href="favicon.ico" sizes="48x48" />
 <style>
-  :root { --c1:#9fb4c8; --c2:#d7e2ec; }
+  :root { --bg:#06080b; --panel:#0d1117; --line:rgba(255,255,255,.12); --c1:#9fb4c8; --c2:#d7e2ec;
+          --ok:#4ec98a; --warn:#e3b341; --err:#ff6b6b; }
   * { box-sizing:border-box; margin:0; padding:0; }
-  html,body { min-height:100%; background:#06080b; color:#fff;
-    font-family:"Inter","Helvetica Neue",Helvetica,Arial,sans-serif; }
-  body { display:flex; align-items:center; justify-content:center; padding:5vh 5vw; }
-  .panel { width:min(94vw,34rem); display:flex; flex-direction:column; gap:1.1rem; }
-  h1 { font-size:clamp(1.6rem,5vw,2.4rem); font-weight:800; letter-spacing:-.02em;
-    background:linear-gradient(120deg,#fff 30%,var(--c1) 70%,var(--c2) 95%);
-    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-  .sub { font-size:.85rem; font-weight:300; color:rgba(255,255,255,.65); }
-  label > span { display:block; font-size:.62rem; font-weight:600; letter-spacing:.16em;
-    text-transform:uppercase; color:rgba(255,255,255,.6); margin-bottom:.35rem; }
-  input { width:100%; padding:.65rem .85rem; border-radius:11px; font-family:inherit;
-    font-size:.95rem; color:#fff; border:1px solid rgba(255,255,255,.14);
-    background:rgba(255,255,255,.06); outline:none; transition:border-color .2s; }
-  input:focus { border-color:var(--c2); }
-  .dims { display:flex; gap:.7rem; }
-  .dims label { flex:1; }
-  .drop { border:1.5px dashed rgba(255,255,255,.25); border-radius:14px; padding:1.2rem;
-    text-align:center; font-size:.82rem; color:rgba(255,255,255,.6); cursor:pointer;
-    transition:border-color .2s, background .2s; }
-  .drop:hover, .drop.over { border-color:var(--c2); background:rgba(255,255,255,.04); }
-  .previews { display:flex; gap:.6rem; flex-wrap:wrap; }
-  .previews .ph { position:relative; }
-  .previews img { width:84px; height:84px; object-fit:cover; border-radius:10px;
-    box-shadow:0 0 0 1px rgba(255,255,255,.15) inset; }
-  .previews button { position:absolute; top:-7px; right:-7px; width:22px; height:22px;
-    border:0; border-radius:50%; background:#222; color:#fff; cursor:pointer; font-size:.8rem; }
-  .go { border:0; cursor:pointer; padding:.8rem; border-radius:12px; font-family:inherit;
-    font-size:.8rem; font-weight:600; letter-spacing:.2em; text-transform:uppercase;
-    color:#06080b; background:linear-gradient(120deg,#fff,var(--c2) 70%,var(--c1)); }
-  .go:disabled { opacity:.45; cursor:default; }
-  .log { min-height:1.4em; font-size:.85rem; font-weight:300; color:var(--c2); line-height:1.6; }
-  .log.err { color:#ff9d9d; }
-  .bar { height:6px; border-radius:99px; background:rgba(255,255,255,.1); overflow:hidden; }
-  .bar > div { height:100%; width:0%; border-radius:99px;
-    background:linear-gradient(90deg,var(--c1),var(--c2)); transition:width .6s ease; }
+  body { background:var(--bg); color:#e9eef4; font-family:"Inter","Helvetica Neue",Arial,sans-serif;
+         -webkit-font-smoothing:antialiased; line-height:1.5; min-height:100vh; }
   a { color:var(--c2); }
-  .gate { display:flex; flex-direction:column; gap:1rem; }
-  [hidden] { display:none !important; }
+  .wrap { max-width:980px; margin:0 auto; padding:2rem 1.2rem 5rem; }
+  h1 { font-size:1.5rem; font-weight:800; letter-spacing:-.02em; }
+  .sub { color:rgba(255,255,255,.6); font-size:.9rem; }
+  button { font:inherit; cursor:pointer; }
+  input, textarea, select { font:inherit; color:#fff; background:#0a0e13; border:1px solid var(--line);
+    border-radius:10px; padding:.6rem .7rem; width:100%; }
+  input:focus, textarea:focus { outline:none; border-color:var(--c1); }
+  label span { display:block; font-size:.72rem; letter-spacing:.04em; text-transform:uppercase;
+    color:rgba(255,255,255,.55); margin-bottom:.3rem; }
+  .go { background:linear-gradient(120deg,var(--c1),var(--c2)); color:#06080b; border:0; border-radius:999px;
+    padding:.7rem 1.6rem; font-weight:700; }
+  .go:disabled { opacity:.5; cursor:default; }
+  .ghost { background:transparent; color:#cfe0ee; border:1px solid var(--line); border-radius:999px; padding:.5rem 1.1rem; }
+  .log { font-size:.85rem; min-height:1.2em; color:rgba(255,255,255,.75); }
+  .log.err { color:var(--err); } .log.ok { color:var(--ok); }
+
+  /* gate */
+  .gate { max-width:340px; margin:18vh auto 0; display:flex; flex-direction:column; gap:.8rem; text-align:center; }
+
+  /* nav */
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.4rem;
+    flex-wrap:wrap; }
+  nav.tabs { display:flex; gap:.4rem; }
+  nav.tabs button { background:transparent; border:1px solid transparent; color:rgba(255,255,255,.7);
+    padding:.45rem .9rem; border-radius:999px; font-weight:600; }
+  nav.tabs button.on { background:#121925; border-color:var(--line); color:#fff; }
+  .view { display:none; } .view.on { display:block; }
+
+  /* gallery grid */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:1rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    display:flex; flex-direction:column; }
+  .card .thumb { aspect-ratio:1/1; background:#0a0e13; position:relative; }
+  .card .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .card .badge { position:absolute; top:6px; left:6px; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase;
+    padding:.15rem .45rem; border-radius:999px; background:rgba(0,0,0,.6); }
+  .card .badge.processing { color:var(--warn); } .card .badge.available { color:var(--ok); }
+  .card .meta { padding:.6rem .7rem; display:flex; flex-direction:column; gap:.15rem; flex:1; }
+  .card .nm { font-weight:600; font-size:.92rem; }
+  .card .dim { font-size:.72rem; color:rgba(255,255,255,.55); }
+  .card .row { display:flex; gap:.4rem; padding:.5rem .7rem .7rem; }
+  .card .row button { flex:1; font-size:.8rem; padding:.4rem; }
+
+  /* add — dropzone + previews */
+  .drop { border:1.5px dashed rgba(255,255,255,.25); border-radius:14px; padding:1.4rem; text-align:center;
+    color:rgba(255,255,255,.6); cursor:pointer; }
+  .drop.over { border-color:var(--c2); background:rgba(255,255,255,.04); }
+  .previews { display:flex; gap:.7rem; flex-wrap:wrap; }
+  .ph { width:120px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#0a0e13; }
+  .ph img { width:120px; height:120px; object-fit:cover; display:block; }
+  .ph .pc { display:flex; align-items:center; gap:.3rem; padding:.35rem .45rem; font-size:.7rem; }
+  .ph .pc label { display:flex; align-items:center; gap:.3rem; cursor:pointer; color:rgba(255,255,255,.8); }
+  .ph .pc .x { margin-left:auto; background:transparent; border:0; color:var(--err); font-size:1rem; }
+  .ph.primary { border-color:var(--c2); box-shadow:0 0 0 1px var(--c2) inset; }
+  .dims { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
+  .bar { height:6px; background:#121925; border-radius:999px; overflow:hidden; }
+  .bar > div { height:100%; width:0; background:linear-gradient(90deg,var(--c1),var(--c2)); transition:width .3s; }
+  .form { display:flex; flex-direction:column; gap:1rem; max-width:560px; }
+
+  /* offers list */
+  .offers { display:flex; flex-direction:column; gap:.5rem; }
+  .ostone { font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--c1);
+    margin:.8rem 0 .2rem; }
+  .offer { display:flex; align-items:center; gap:.9rem; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:.6rem .8rem; cursor:pointer; }
+  .offer:hover { border-color:var(--c1); }
+  .offer .amt { font-weight:700; font-size:1.05rem; min-width:6.5rem; }
+  .offer .who { color:rgba(255,255,255,.8); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .offer .when { color:rgba(255,255,255,.5); font-size:.8rem; }
+
+  /* modal */
+  .modal { position:fixed; inset:0; background:rgba(4,6,9,.85); backdrop-filter:blur(6px); display:none;
+    align-items:center; justify-content:center; padding:5vh 5vw; z-index:50; }
+  .modal.on { display:flex; }
+  .modal .box { background:var(--panel); border:1px solid var(--line); border-radius:16px; overflow:hidden;
+    max-width:480px; width:100%; }
+  .modal .box img { width:100%; max-height:70vh; object-fit:contain; background:#000; display:block; }
+  .modal .box .cap { padding:.8rem 1rem; display:flex; justify-content:space-between; align-items:center; }
+  .empty { color:rgba(255,255,255,.5); padding:2rem 0; text-align:center; }
 </style>
 </head>
 <body>
-<div class="panel">
-  <h1>Stones — Admin</h1>
+<div class="wrap">
 
   <div class="gate" id="gate">
+    <h1>Stones — Admin</h1>
     <div class="sub">Enter the admin password.</div>
     <input type="password" id="pass" placeholder="password" autofocus />
     <button class="go" onclick="unlock()">Enter</button>
@@ -61,87 +105,98 @@
   </div>
 
   <div id="app" hidden>
-    <div class="sub" style="margin-bottom:1rem">Upload a new stone — 1 to 3 photos. Its height is estimated automatically from the photos; width and depth are optional. Processing takes ~2 minutes; the stone appears in the gallery when it finishes.</div>
-    <form onsubmit="return false" style="display:flex;flex-direction:column;gap:1rem">
-      <label><span>Name (optional — the studio will name it if empty)</span>
-        <input id="name" placeholder="e.g. Desert Rose" /></label>
-      <div class="dims">
-        <label><span>Width cm (optional)</span><input id="w" type="number" min="1" step="0.5" /></label>
-        <label><span>Depth cm (optional)</span><input id="d" type="number" min="1" step="0.5" /></label>
+    <div class="topbar">
+      <h1>Stones — Admin</h1>
+      <nav class="tabs">
+        <button data-v="gallery" class="on" onclick="showView('gallery')">Gallery</button>
+        <button data-v="add" onclick="showView('add')">Add stone</button>
+        <button data-v="offers" onclick="showView('offers')">Offers</button>
+      </nav>
+    </div>
+
+    <!-- GALLERY -->
+    <section class="view on" id="v-gallery">
+      <div class="sub" style="margin-bottom:1rem">Every stone — click <b>Edit</b> to change its name or size.</div>
+      <div class="grid" id="galleryGrid"></div>
+      <div class="empty" id="galleryEmpty" hidden>No stones yet. Add one →</div>
+    </section>
+
+    <!-- ADD -->
+    <section class="view" id="v-add">
+      <div class="sub" style="margin-bottom:1rem">Upload 1–8 photos of one stone. Mark the <b>primary</b> (the photo shown in the gallery); the rest are extra angles. Height is estimated automatically; width &amp; depth optional. Gemini decides how many looks fit (up to 12).</div>
+      <div class="form">
+        <label><span>Name (optional — the studio will name it)</span>
+          <input id="name" placeholder="e.g. Desert Rose" /></label>
+        <div class="dims">
+          <label><span>Width cm (optional)</span><input id="w" type="number" min="1" step="0.5" /></label>
+          <label><span>Depth cm (optional)</span><input id="d" type="number" min="1" step="0.5" /></label>
+        </div>
+        <div class="drop" id="drop">drop photos here, or click to choose (1–8)</div>
+        <input type="file" id="file" accept="image/*" multiple hidden />
+        <div class="previews" id="previews"></div>
+        <button class="go" id="submit" onclick="createStone()">Add to gallery</button>
+        <div class="bar"><div id="prog"></div></div>
+        <div class="log" id="log"></div>
       </div>
-      <div class="sub" style="margin-top:-.5rem">Height is estimated from the photos. Width and depth are optional.</div>
-      <div class="drop" id="drop">drop photos here, or click to choose (1–3)</div>
-      <input type="file" id="file" accept="image/*" multiple hidden />
-      <div class="previews" id="previews"></div>
-      <button class="go" id="submit" onclick="createStone()">Add to gallery</button>
-      <div class="bar"><div id="prog"></div></div>
-      <div class="log" id="log"></div>
-    </form>
+    </section>
+
+    <!-- EDIT -->
+    <section class="view" id="v-edit">
+      <button class="ghost" onclick="showView('gallery')" style="margin-bottom:1rem">← Gallery</button>
+      <div class="form">
+        <div style="display:flex; gap:1rem; align-items:flex-start">
+          <img id="editHero" alt="" style="width:140px; height:140px; object-fit:cover; border-radius:12px; border:1px solid var(--line)" />
+          <div style="flex:1">
+            <div class="sub" id="editId"></div>
+            <div class="log" id="editStatus"></div>
+          </div>
+        </div>
+        <label><span>Name</span><input id="eName" /></label>
+        <div class="dims" style="grid-template-columns:1fr 1fr 1fr">
+          <label><span>Width cm</span><input id="eW" type="number" min="0" step="0.5" /></label>
+          <label><span>Height cm</span><input id="eH" type="number" min="0" step="0.5" /></label>
+          <label><span>Depth cm</span><input id="eD" type="number" min="0" step="0.5" /></label>
+        </div>
+        <div class="sub">Adding more images to an existing stone is coming next.</div>
+        <button class="go" id="eSave" onclick="saveEdit()">Save changes</button>
+        <div class="log" id="editLog"></div>
+      </div>
+    </section>
+
+    <!-- OFFERS -->
+    <section class="view" id="v-offers">
+      <div class="sub" style="margin-bottom:1rem">Offers, newest first, grouped by stone. Click one to see the stone.</div>
+      <div class="offers" id="offersList"></div>
+      <div class="empty" id="offersEmpty" hidden>No offers yet.</div>
+    </section>
+  </div>
+</div>
+
+<!-- stone reminder modal (from an offer) -->
+<div class="modal" id="modal" onclick="if(event.target.id==='modal')closeModal()">
+  <div class="box">
+    <img id="modalImg" alt="" />
+    <div class="cap"><span id="modalName"></span><button class="ghost" onclick="closeModal()">Close</button></div>
   </div>
 </div>
 
 <script>
 let PASS = sessionStorage.getItem('stones-admin-pass') || '';
-const photos = []; // [{b64, url}]
+const photos = []; // [{b64, primary}]
 
-if (PASS) { gate.hidden = true; app.hidden = false; }
+if (PASS) boot();
 
 async function unlock(){
   const p = document.getElementById('pass').value;
   const r = await fetch('/api/admin', { method:'POST',
     headers:{'Content-Type':'application/json','x-admin-pass':p},
     body:JSON.stringify({action:'ping'}) });
-  if (r.status === 401) { gateMsg.textContent = 'Wrong password.'; return; }
-  PASS = p; sessionStorage.setItem('stones-admin-pass', p);
-  gate.hidden = true; app.hidden = false;
+  if (r.status === 401){ document.getElementById('gateMsg').textContent='Wrong password.'; return; }
+  PASS = p; sessionStorage.setItem('stones-admin-pass', p); boot();
 }
 document.getElementById('pass').addEventListener('keydown', e=>{ if(e.key==='Enter') unlock(); });
 
-// photo intake: resize client-side to ≤1600px JPEG so payloads stay small
-const drop = document.getElementById('drop'), fileIn = document.getElementById('file');
-drop.onclick = ()=> fileIn.click();
-drop.ondragover = e=>{ e.preventDefault(); drop.classList.add('over'); };
-drop.ondragleave = ()=> drop.classList.remove('over');
-drop.ondrop = e=>{ e.preventDefault(); drop.classList.remove('over'); intake(e.dataTransfer.files); };
-fileIn.onchange = ()=> intake(fileIn.files);
-
-async function intake(files){
-  for (const f of [...files]) {
-    if (photos.length >= 3) break;
-    if (!f.type.startsWith('image/')) continue;
-    const b64 = await resize(f);
-    photos.push({ b64 });
-    renderPreviews();
-  }
-}
-function resize(file){
-  return new Promise(ok=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const s = Math.min(1, 1600/Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      ok(c.toDataURL('image/jpeg', .9).split(',')[1]);
-    };
-    img.src = URL.createObjectURL(file);
-  });
-}
-function renderPreviews(){
-  previews.innerHTML = photos.map((p,i)=>
-    '<div class="ph"><img src="data:image/jpeg;base64,'+p.b64+'"><button onclick="photos.splice('+i+',1);renderPreviews()">&times;</button></div>'
-  ).join('');
-}
-
-const STEPS = [
-  ['analyze',  'Studying the stone…'],
-  ['cutout',   'Tracing its silhouette…'],
-  ['blur',     'Shooting the gallery portrait…'],
-  ['outdoor',  'Taking it outside…'],
-  ['indoor',   'Bringing it indoors…'],
-  ['creative', 'Dreaming something stranger…'],
-  ['finalize', 'Hanging it in the gallery…'],
-];
+function boot(){ document.getElementById('gate').hidden=true; document.getElementById('app').hidden=false; loadGallery(); }
 
 async function call(body){
   const r = await fetch('/api/admin', { method:'POST',
@@ -152,36 +207,175 @@ async function call(body){
   return d;
 }
 
-async function createStone(){
-  const log = document.getElementById('log'), prog = document.getElementById('prog'),
-        btn = document.getElementById('submit');
-  const w=+document.getElementById('w').value, d=+document.getElementById('d').value;
-  log.className='log';
-  if (!photos.length)   { log.className='log err'; log.textContent='Add at least one photo.'; return; }
-  btn.disabled = true;
-  try {
-    log.textContent = 'Uploading photos…'; prog.style.width = '6%';
-    const { id } = await call({ action:'create', name:document.getElementById('name').value,
-      width_cm:w, depth_cm:d, photos:photos.map(p=>p.b64) });
-    for (let i=0;i<STEPS.length;i++){
-      const [step, words] = STEPS[i];
-      log.textContent = words; prog.style.width = (10 + i*15) + '%';
-      if (step==='analyze') {
-        const a = await call({ action:'analyze', id });
-        if (a.name) log.textContent = 'It has a name: ' + a.name
-          + (a.height_cm ? ' · ~' + a.height_cm + ' cm tall' : '') + '…';
-      }
-      else if (step==='cutout') await call({ action:'cutout', id });
-      else if (step==='finalize') await call({ action:'finalize', id });
-      else await call({ action:'variant', id, kind:step });
-    }
-    prog.style.width='100%';
-    log.innerHTML = 'Done — <a href="https://shaym.beauty" target="_blank">see it in the gallery</a>.';
-    photos.length = 0; renderPreviews();
-  } catch(e) {
-    log.className='log err'; log.textContent = e.message;
-  } finally { btn.disabled = false; }
+function showView(v){
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+v));
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  if (v==='gallery') loadGallery();
+  if (v==='offers') loadOffers();
 }
+
+function fmtDim(s){
+  const out=[]; if(s.width_cm) out.push(s.width_cm+'w'); if(s.height_cm) out.push(s.height_cm+'h'); if(s.depth_cm) out.push(s.depth_cm+'d');
+  return out.length? out.join(' · ')+' cm' : '—';
+}
+
+// ---- gallery ----
+async function loadGallery(){
+  const grid=document.getElementById('galleryGrid'), empty=document.getElementById('galleryEmpty');
+  grid.innerHTML='<div class="sub">Loading…</div>';
+  try{
+    const { stones } = await call({action:'list'});
+    grid.innerHTML='';
+    empty.hidden = stones.length>0;
+    stones.forEach(s=>{
+      const c=document.createElement('div'); c.className='card';
+      c.innerHTML =
+        '<div class="thumb">'+(s.hero?'<img src="'+s.hero+'" alt="">':'')+
+          '<span class="badge '+s.status+'">'+s.status+'</span></div>'+
+        '<div class="meta"><div class="nm">'+esc(s.name)+'</div>'+
+          '<div class="dim">'+fmtDim(s)+' · '+(s.looks||0)+' looks</div></div>'+
+        '<div class="row"><button class="ghost" data-id="'+s.id+'">Edit</button></div>';
+      c.querySelector('button').onclick=()=>openEdit(s);
+      grid.appendChild(c);
+    });
+  }catch(e){ grid.innerHTML='<div class="log err">'+esc(e.message)+'</div>'; }
+}
+
+// ---- add ----
+const drop=document.getElementById('drop'), fileIn=document.getElementById('file');
+drop.onclick=()=>fileIn.click();
+drop.ondragover=e=>{ e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=e=>{ e.preventDefault(); drop.classList.remove('over'); intake(e.dataTransfer.files); };
+fileIn.onchange=()=>intake(fileIn.files);
+
+async function intake(files){
+  for (const f of [...files]){
+    if (photos.length>=8) break;
+    if (!f.type.startsWith('image/')) continue;
+    const b64 = await resize(f);
+    photos.push({ b64, primary: photos.length===0 });
+  }
+  if (!photos.some(p=>p.primary) && photos.length) photos[0].primary=true;
+  renderPreviews();
+}
+function resize(file){ // ≤1600px JPEG q.9 to stay under the request-body limit
+  return new Promise(ok=>{
+    const img=new Image();
+    img.onload=()=>{
+      const s=Math.min(1, 1600/Math.max(img.width,img.height));
+      const c=document.createElement('canvas');
+      c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      ok(c.toDataURL('image/jpeg', .9).split(',')[1]);
+    };
+    img.src=URL.createObjectURL(file);
+  });
+}
+function setPrimary(i){ photos.forEach((p,k)=>p.primary=(k===i)); renderPreviews(); }
+function removePhoto(i){ const wasP=photos[i].primary; photos.splice(i,1);
+  if (wasP && photos.length) photos[0].primary=true; renderPreviews(); }
+function renderPreviews(){
+  document.getElementById('previews').innerHTML = photos.map((p,i)=>
+    '<div class="ph'+(p.primary?' primary':'')+'">'+
+      '<img src="data:image/jpeg;base64,'+p.b64+'">'+
+      '<div class="pc"><label><input type="radio" name="prim" '+(p.primary?'checked':'')+' onchange="setPrimary('+i+')">primary</label>'+
+      '<button class="x" onclick="removePhoto('+i+')" aria-label="remove">&times;</button></div>'+
+    '</div>').join('');
+}
+
+async function createStone(){
+  const log=document.getElementById('log'), prog=document.getElementById('prog'), btn=document.getElementById('submit');
+  log.className='log';
+  if (!photos.length){ log.className='log err'; log.textContent='Add at least one photo.'; return; }
+  const w=+document.getElementById('w').value, d=+document.getElementById('d').value;
+  const primary=Math.max(0, photos.findIndex(p=>p.primary));
+  btn.disabled=true;
+  try{
+    log.textContent='Uploading photos…'; prog.style.width='5%';
+    const { id } = await call({ action:'create', name:document.getElementById('name').value,
+      width_cm:w, depth_cm:d, primary, photos:photos.map(p=>p.b64) });
+    log.textContent='Studying the stone…'; prog.style.width='12%';
+    const a = await call({ action:'analyze', id });
+    const N = a.looks||0;
+    if (a.name) log.textContent='It has a name: '+a.name+(a.height_cm?' · ~'+a.height_cm+' cm tall':'')+' — planning '+N+' looks…';
+    for (let i=0;i<N;i++){
+      await call({ action:'look', id, index:i });
+      prog.style.width = (15 + Math.round((i+1)/(N+2)*75)) + '%';
+      log.textContent='Generating look '+(i+1)+' of '+N+'…';
+    }
+    log.textContent='Tracing its silhouette…'; prog.style.width='92%';
+    await call({ action:'cutout', id });
+    log.textContent='Hanging it in the gallery…'; prog.style.width='97%';
+    await call({ action:'finalize', id });
+    prog.style.width='100%'; log.className='log ok';
+    log.innerHTML='Done — '+(a.name||id)+' is live. <a href="https://shaym.beauty" target="_blank">see it</a>.';
+    photos.length=0; renderPreviews();
+    document.getElementById('name').value=''; document.getElementById('w').value=''; document.getElementById('d').value='';
+  }catch(e){ log.className='log err'; log.textContent=e.message; }
+  finally{ btn.disabled=false; }
+}
+
+// ---- edit ----
+let editing=null;
+function openEdit(s){
+  editing=s;
+  document.getElementById('editHero').src=s.hero||'';
+  document.getElementById('editId').textContent='id: '+s.id;
+  document.getElementById('editStatus').textContent=s.status+' · '+(s.looks||0)+' looks';
+  document.getElementById('eName').value=s.name||'';
+  document.getElementById('eW').value=s.width_cm||'';
+  document.getElementById('eH').value=s.height_cm||'';
+  document.getElementById('eD').value=s.depth_cm||'';
+  document.getElementById('editLog').textContent='';
+  showView('edit');
+}
+async function saveEdit(){
+  const log=document.getElementById('editLog'), btn=document.getElementById('eSave');
+  log.className='log';
+  const v=id=>document.getElementById(id).value;
+  btn.disabled=true; log.textContent='Saving…';
+  try{
+    await call({ action:'update', id:editing.id, name:v('eName'),
+      width_cm:v('eW')||null, height_cm:v('eH')||null, depth_cm:v('eD')||null });
+    log.className='log ok'; log.textContent='Saved.';
+  }catch(e){ log.className='log err'; log.textContent=e.message; }
+  finally{ btn.disabled=false; }
+}
+
+// ---- offers ----
+async function loadOffers(){
+  const list=document.getElementById('offersList'), empty=document.getElementById('offersEmpty');
+  list.innerHTML='<div class="sub">Loading…</div>';
+  try{
+    const { offers } = await call({action:'offers'});
+    list.innerHTML=''; empty.hidden=offers.length>0;
+    // group by stone (keep newest-first order within), but render as a list
+    const groups={}; const order=[];
+    offers.forEach(o=>{ if(!groups[o.stone_id]){ groups[o.stone_id]=[]; order.push(o.stone_id); } groups[o.stone_id].push(o); });
+    order.forEach(sid=>{
+      const g=groups[sid];
+      const h=document.createElement('div'); h.className='ostone'; h.textContent=g[0].stone_name;
+      list.appendChild(h);
+      g.forEach(o=>{
+        const row=document.createElement('div'); row.className='offer';
+        row.innerHTML='<span class="amt">'+usd(o.amount_usd)+'</span>'+
+          '<span class="who">'+esc(o.email)+'</span>'+
+          '<span class="when">'+when(o.created_at)+'</span>';
+        row.onclick=()=>openModal(o.stone_original, o.stone_name);
+        list.appendChild(row);
+      });
+    });
+  }catch(e){ list.innerHTML='<div class="log err">'+esc(e.message)+'</div>'; }
+}
+function openModal(src,name){ document.getElementById('modalImg').src=src||'';
+  document.getElementById('modalName').textContent=name||''; document.getElementById('modal').classList.add('on'); }
+function closeModal(){ document.getElementById('modal').classList.remove('on'); }
+
+// ---- utils ----
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function usd(v){ return '$'+Number(v||0).toLocaleString('en-US',{maximumFractionDigits:0}); }
+function when(t){ try{ return new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }catch(e){ return ''; } }
 </script>
 </body>
 </html>
