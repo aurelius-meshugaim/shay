@@ -115,7 +115,7 @@
     .lb-thumbs button.on img { box-shadow:0 0 0 2px var(--c2); }
     .lb-thumbs span { font-size:clamp(.52rem,1.1vw,.62rem); font-weight:600; letter-spacing:.05em;
       text-transform:uppercase; color:rgba(255,255,255,.78); white-space:nowrap; }
-    .lb-close { position:fixed; top:18px; right:22px; width:42px; height:42px; border:0;
+    .lb-close { position:fixed; top:18px; left:22px; right:auto; width:42px; height:42px; border:0;
       border-radius:50%; background:rgba(0,0,0,.4); color:#fff; font-size:1.5rem; cursor:pointer;
       display:flex; align-items:center; justify-content:center; z-index:3; }
     .lb-close:hover { background:rgba(0,0,0,.7); }
@@ -255,7 +255,7 @@
       display:flex; align-items:center; justify-content:center;
       box-shadow:0 2px 8px rgba(0,0,0,.5); transition:background .2s, transform .2s; }
     .info-btn:hover { background:rgba(0,0,0,.82); transform:scale(1.12); }
-    .lb-info { top:10px; left:10px; right:auto; }
+    .lb-info { top:10px; right:10px; left:auto; }
 
     .info { position:fixed; inset:0; z-index:20; display:none;
       align-items:center; justify-content:center; padding:6vh 6vw;
@@ -332,10 +332,9 @@
         <div class="dream-enter" id="dreamEnter" hidden onclick="stepInside(event)">step inside &mdash; 360&deg;</div>
         <button class="dream-again" id="dreamAgain" hidden onclick="regenDream(event)">&#8635;&nbsp;dream it again</button>
         <div class="dream-panel">
-          <div class="dream-soon">coming soon</div>
-          <div class="dream-head">This stone, in your home</div>
-          <div class="dream-sub">Describe your home — a room, the light, what's on the shelves — and watch the stone find its place there, in full&nbsp;360&deg;.</div>
-          <textarea id="dreamDesc" maxlength="600" placeholder="Tall windows, late-afternoon sun, a worn leather armchair, my grandmother's rug&hellip;" onclick="event.stopPropagation()"></textarea>
+          <div class="dream-head">See it in your home</div>
+          <div class="dream-sub">Describe a room — and see this stone there, in full&nbsp;360&deg;.</div>
+          <textarea id="dreamDesc" maxlength="600" placeholder="Tall windows, soft afternoon light, a worn leather armchair&hellip;" onclick="event.stopPropagation()"></textarea>
           <button class="dream-go" id="dreamGo" onclick="startDream(event)">Dream it &mdash; 360&deg;</button>
           <div class="dream-msg" id="dreamMsg" role="status"></div>
           <div class="dream-email" id="dreamEmail" hidden>
