@@ -32,6 +32,8 @@ Critically: the exact stone from the attached photograph must appear in the scen
 
 Distance and framing: place the stone across the room at a comfortable, natural viewing distance — in the mid-ground or against a far wall — so the whole room is visible around it. The stone must NOT be close-up, looming, or filling the foreground; it should read as a small, distant focal point you'd walk toward, never pressed up against the camera.
 
+Placement in the frame (important): position the stone at the exact HORIZONTAL CENTER of the equirectangular image (its middle column) and at the viewer's eye level (the vertical middle / horizon line). Someone entering the panorama looking straight ahead must see the stone centred dead-ahead in their view.
+
 Style: photorealistic, warm inviting light, the home feels lived-in and personal. No people, no text, no watermarks. Equirectangular projection only — straight vertical lines may curve horizontally as the projection requires.`;
 
   const body = {
